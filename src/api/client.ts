@@ -42,7 +42,9 @@ export async function apiFetch<T>(
     let message = `HTTP ${response.status}`;
     try {
       const body = await response.json();
-      if (body?.message) message = body.message;
+      if (typeof body?.message === "string" && body.message.length > 0) {
+        message = body.message;
+      }
     } catch {
       // sin cuerpo JSON
     }
