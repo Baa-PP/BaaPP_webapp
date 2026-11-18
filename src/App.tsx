@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 
 type Ranch = { id?: string; ranchId?: string; name?: string; [key: string]: unknown };
 type Session = {
@@ -30,10 +30,17 @@ function tokenFrom(payload: ApiPayload): string {
   return String(data.accessToken || data.access_token || data.token || data.jwt || payload.accessToken || payload.access_token || payload.token || payload.jwt || '');
 }
 
+// fix(issue-3): also accept a bare-array response body (e.g. GET /ranches → [{...},...])
+// and an array nested under data, in addition to the existing named-key shapes.
+// Returns undefined only when no supported array shape is found.
 function ranchesFrom(payload: ApiPayload): Ranch[] | undefined {
-  const candidates = [payload.ranches, payload.accessibleRanches, payload.accessible_ranches,
+  if (Array.isArray(payload)) return payload as Ranch[];
+  const candidates = [
+    payload.ranches, payload.accessibleRanches, payload.accessible_ranches,
     payload.data?.ranches, payload.data?.accessibleRanches, payload.data?.accessible_ranches,
-    payload.data?.content, payload.content];
+    payload.data?.content, payload.content,
+    Array.isArray(payload.data) ? payload.data : undefined,
+  ];
   return candidates.find(Array.isArray) as Ranch[] | undefined;
 }
 
@@ -100,6 +107,11 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [catalogError, setCatalogError] = useState('');
 
+  // fix(issue-1): session generation counter — incremented on logout so that
+  // in-flight login/catalog completions can detect they belong to a stale flow
+  // and discard their writes instead of restoring a session after logout.
+  const sessionGenRef = useRef(0);
+
   useEffect(() => {
     const updateRoute = () => setRoute(currentRoute());
     window.addEventListener('hashchange', updateRoute);
@@ -116,6 +128,9 @@ export default function App() {
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setCatalogError(''); setBusy(true);
+    // Capture the generation at the start of this login attempt.
+    // fix(issue-1): any write below is guarded by checking this generation.
+    const gen = sessionGenRef.current;
     try {
       const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -130,22 +145,37 @@ export default function App() {
       const accessToken = tokenFrom(payload);
       if (!accessToken) throw new Error('El servidor no devolvió el token de acceso.');
       const data = payload.data || payload;
-      const session: Session = {
+      const newSession: Session = {
         accessToken,
         refreshToken: String(data.refreshToken || data.refresh_token || '') || undefined,
         role: roleFrom(payload, accessToken),
         username: String((data.user as Record<string, unknown> | undefined)?.username || username.trim()),
         ranches: ranchesFrom(payload) || [],
       };
-      saveSession(session);
-      setSession(session); setPassword(''); window.location.hash = '/inicio';
+
+      // fix(issue-1): only commit if no logout happened since we started.
+      if (gen !== sessionGenRef.current) return;
+      saveSession(newSession);
+      setSession(newSession); setPassword(''); window.location.hash = '/inicio';
 
       if (!ranchesFrom(payload)) {
         try {
           const ranchResponse = await apiRequest('/ranches');
           if (!ranchResponse.ok) throw new Error();
-          session.ranches = ranchesFrom(await readPayload(ranchResponse)) || [];
-          saveSession(session); setSession({ ...session });
+          const ranches = ranchesFrom(await readPayload(ranchResponse)) || [];
+
+          // fix(issue-1): discard if logged out while the /ranches request was in flight.
+          if (gen !== sessionGenRef.current) return;
+
+          // fix(issue-2): merge ranches into the current saved session so we
+          // preserve any access token that apiRequest may have refreshed (L83-84),
+          // rather than overwriting storage with the stale login-local object.
+          const current = readSession();
+          if (current) {
+            const merged: Session = { ...current, ranches };
+            saveSession(merged);
+            setSession(merged);
+          }
         } catch (cause) {
           if (cause instanceof Error && cause.message === 'SESSION_EXPIRED') {
             sessionStorage.removeItem(STORAGE_KEY); setSession(null); window.location.hash = '/login';
@@ -165,6 +195,9 @@ export default function App() {
   }
 
   function logout() {
+    // fix(issue-1): bump the generation so any pending login/catalog async
+    // completions belonging to the current session see a stale gen and bail out.
+    sessionGenRef.current += 1;
     sessionStorage.removeItem(STORAGE_KEY); setSession(null); setPassword('');
     window.location.hash = '/login';
   }
@@ -203,5 +236,3 @@ export default function App() {
     </main></div>
   </div>;
 }
-
-
