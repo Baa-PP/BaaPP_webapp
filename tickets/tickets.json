@@ -1,0 +1,569 @@
+{
+  "source": "tickets/REQUERIMIENTOS_WEBAPP.pdf",
+  "project": "BaaPP_webapp",
+  "generated": "2026-11-17",
+  "mvp_target": "2026-12-04/06",
+  "tickets": [
+    {
+      "id": "WEB-001",
+      "requirement": "RF-WEB-01",
+      "title": "Pantalla de login JWT",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["auth"],
+      "description": "Pantalla de inicio de sesión (usuario, contrasena) contra POST /api/v1/auth/login. Guarda el JWT y el catálogo de ranchos accesibles para el rol.",
+      "acceptance_criteria": [
+        "Login válido guarda el token y redirige al inicio",
+        "Credenciales inválidas muestran mensaje claro en español mexicano ganadero",
+        "Sin secretos en variables VITE_*"
+      ],
+      "endpoints": ["POST /api/v1/auth/login"],
+      "depends_on": ["WEB-003"]
+    },
+    {
+      "id": "WEB-002",
+      "requirement": "RF-WEB-01",
+      "title": "Expiración de sesión: 401 y refresh",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["auth", "api"],
+      "description": "Ante 401 Unauthorized intenta POST /api/v1/auth/refresh; si falla, redirige a login.",
+      "acceptance_criteria": [
+        "401 dispara un solo refresh aunque haya peticiones concurrentes",
+        "Refresh fallido limpia la sesión y redirige a login"
+      ],
+      "endpoints": ["POST /api/v1/auth/refresh"],
+      "depends_on": ["WEB-001", "WEB-003"]
+    },
+    {
+      "id": "WEB-003",
+      "requirement": "Sección 3.2",
+      "title": "apiFetch inyecta Authorization y X-Active-Ranch-Id",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["api", "multi-tenancy"],
+      "description": "src/api/client.ts debe inyectar en cada petición Authorization: Bearer <jwt> y X-Active-Ranch-Id: <ranchId> (de useRanchContextStore). Base URL desde VITE_API_BASE_URL (HTTPS).",
+      "acceptance_criteria": [
+        "Toda petición lleva ambos encabezados cuando hay sesión y rancho activo",
+        "Errores HTTP normalizados en un único tipo de error",
+        "Test unitario de los encabezados"
+      ],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-004",
+      "requirement": "RF-WEB-01",
+      "title": "Navegación y rutas por rol",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["auth", "ui"],
+      "description": "Adapta la navegación al rol autenticado: oculta Bandeja de Auditoría para OWNER y muestra el selector multi-rancho solo a ASSOCIATION_SUPERUSER / VET_TECHNICIAN. WORKER_BRANCH ve solo los módulos de su objeto permisos. La UI solo oculta; el control real está en el backend.",
+      "acceptance_criteria": [
+        "OWNER no ve Bandeja de Auditoría ni selector multi-rancho",
+        "WORKER_BRANCH solo ve módulos habilitados en su JSONB de permisos",
+        "Rutas protegidas redirigen a login sin sesión"
+      ],
+      "endpoints": [],
+      "depends_on": ["WEB-001"]
+    },
+    {
+      "id": "WEB-005",
+      "requirement": "RF-WEB-02",
+      "title": "Selector global de rancho activo en el encabezado",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["multi-tenancy", "ui"],
+      "description": "Selector permanente en App.tsx, poblado desde GET /api/v1/ranches (reemplaza las opciones estáticas del esqueleto). Al cambiar, actualiza useRanchContextStore y ejecuta queryClient.invalidateQueries().",
+      "acceptance_criteria": [
+        "Lista dinámica de ranchos afiliados",
+        "Cambiar de rancho refresca todas las vistas sin re-login ni mezclar datos",
+        "Funciona con al menos dos ranchos"
+      ],
+      "endpoints": ["GET /api/v1/ranches"],
+      "depends_on": ["WEB-003", "WEB-004"]
+    },
+    {
+      "id": "WEB-006",
+      "requirement": "RF-WEB-02",
+      "title": "Mostrar datos del rancho seleccionado",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["multi-tenancy", "ui"],
+      "description": "Muestra nombre del rancho, propietario y fecha/hora de la última sincronización recibida desde BaaPP-app.",
+      "acceptance_criteria": [
+        "Nombre, propietario y última sincronización visibles junto al selector"
+      ],
+      "endpoints": ["GET /api/v1/ranches"],
+      "depends_on": ["WEB-005"]
+    },
+    {
+      "id": "WEB-007",
+      "requirement": "RF-WEB-03",
+      "title": "Perfil del rancho editable",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["ranch"],
+      "description": "Edición de nombre, domicilio, propietario y dias_meta_destete (base 75; típicamente 60, 75 o 90). Disponible para OWNER y Asociación.",
+      "acceptance_criteria": [
+        "Guarda con PUT /api/v1/ranches/{id}",
+        "dias_meta_destete acepta 60, 75 y 90",
+        "Roles sin permiso no ven el formulario"
+      ],
+      "endpoints": ["PUT /api/v1/ranches/{id}"],
+      "depends_on": ["WEB-005"]
+    },
+    {
+      "id": "WEB-008",
+      "requirement": "RF-WEB-03",
+      "title": "Gestión de Cuentas Rama (WORKER_BRANCH)",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["ranch", "auth"],
+      "description": "OWNER da de alta, desactiva y configura permisos granulares (JSONB) por trabajador: lectura de inventario, captura en campo, edición de ficha/pesajes (excluyendo nacimientos bloqueados) y exportación.",
+      "acceptance_criteria": [
+        "Alta y desactivación de cuentas rama",
+        "Editor de permisos con las cuatro capacidades",
+        "Solo OWNER accede"
+      ],
+      "endpoints": ["/api/v1/ranches/{id}/workers"],
+      "depends_on": ["WEB-005"]
+    },
+    {
+      "id": "WEB-009",
+      "requirement": "RF-WEB-04",
+      "title": "Tabla de inventario con búsqueda y filtros",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["inventory"],
+      "description": "Listado del rebaño. Búsqueda por folio_interno, chip_siniiga (484...), registro_uno. Filtros combinables: sexo, etapa_vida (LAMB_LACTATING, LAMB_FATTENING, EWE_REPLACEMENT, ADULT), estado_reproductivo (EMPTY, PREGNANT, LACTATING, STUD_RAM), raza y estado (ACTIVE, SOLD, DECEASED).",
+      "acceptance_criteria": [
+        "Búsqueda por los tres identificadores",
+        "Filtros combinables",
+        "Solo muestra animales del rancho activo"
+      ],
+      "endpoints": ["GET /api/v1/animals"],
+      "depends_on": ["WEB-003", "WEB-005"]
+    },
+    {
+      "id": "WEB-010",
+      "requirement": "RF-WEB-04",
+      "title": "Ficha individual: encabezado y certificado Rosa/Azul",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["inventory", "ui"],
+      "description": "Hoja Rosa (hembras) / Azul (machos), siempre con texto e ícono. Encabezado con folio UNO, SINIIGA (484...), folio interno, ADN, fecha de nacimiento y edad dinámica en meses y días. Distinción obligatoria Criador (rancho donde nació) vs Propietario Actual. Foto desde S3 con URL pre-firmada GET.",
+      "acceptance_criteria": [
+        "Color nunca es el único indicador del sexo",
+        "Criador y Propietario Actual visibles y distintos",
+        "Foto carga con URL pre-firmada"
+      ],
+      "endpoints": ["GET /api/v1/animals/{id}"],
+      "depends_on": ["WEB-009"]
+    },
+    {
+      "id": "WEB-011",
+      "requirement": "RF-WEB-04",
+      "title": "Ficha individual: pesajes, GDP y bajas",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["inventory", "charts"],
+      "description": "Historial de pesajes (Nacimiento, Destete, 120d, 150d, Evaluación), circunferencia escrotal en machos y tabla/gráfica de GDP. Bajas SOLD/DECEASED con fecha, causa y etapa al morir; sin borrado físico.",
+      "acceptance_criteria": [
+        "Historial y gráfica de GDP",
+        "Circunferencia escrotal solo en machos",
+        "Bajas visibles con fecha, causa y etapa"
+      ],
+      "endpoints": ["GET /api/v1/animals/{id}"],
+      "depends_on": ["WEB-010"]
+    },
+    {
+      "id": "WEB-012",
+      "requirement": "RF-WEB-05",
+      "title": "Sábana virtualizada de 24 columnas (A–X)",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["sabana", "performance"],
+      "description": "Grid con TanStack Table v8 + TanStack Virtual, 60 FPS con 1,000+ animales, ordenamiento, filtrado y columnas fijas/horizontales. Columnas A–X según SabanaColumns.ts: folio, adn, CHIP (SINIIGA), fecha nacimiento, fecha destete, edad meses, edad días, peso nacimiento, 120d, 150d, evaluación, circunferencia, peso destete, tipo destete, padre, folio padre (UNO), madre, folio madre (UNO), raza, tipo de parto, concepción, color, sexo, fecha de corte.",
+      "acceptance_criteria": [
+        "Las 24 columnas con el diccionario exacto del SRS",
+        "Edad calculada con fecha de corte (meses = días/30.0)",
+        "Desplazamiento fluido con 1,000+ filas sin bloquear el hilo principal"
+      ],
+      "endpoints": ["GET /api/v1/reports/sabana"],
+      "depends_on": ["WEB-003", "WEB-005"]
+    },
+    {
+      "id": "WEB-013",
+      "requirement": "RF-WEB-05",
+      "title": "Exportar Sábana a .xlsx",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["sabana"],
+      "description": "Botón de descarga directa vía GET /api/v1/reports/sabana (streaming con FastExcel en backend), solo animales del rancho activo. Compatible con SABANA OCT 2026 DORPER.xlsx.",
+      "acceptance_criteria": [
+        "Descarga un .xlsx válido",
+        "Contiene únicamente animales del rancho activo",
+        "Visible solo con permiso de exportación"
+      ],
+      "endpoints": ["GET /api/v1/reports/sabana"],
+      "depends_on": ["WEB-012"]
+    },
+    {
+      "id": "WEB-014",
+      "requirement": "RF-WEB-05",
+      "title": "Importar Sábana .xlsx con previsualización de errores",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["sabana"],
+      "description": "Carga de un Excel con el formato oficial para poblar un rancho nuevo. Previsualiza errores de formato y duplicidad por fila antes de confirmar. POST /api/v1/reports/sabana/import.",
+      "acceptance_criteria": [
+        "Muestra errores por fila antes de confirmar",
+        "Detecta duplicados",
+        "Mensajes de error en español mexicano ganadero",
+        "Valida tipo y tamaño del archivo en el cliente"
+      ],
+      "endpoints": ["POST /api/v1/reports/sabana/import"],
+      "depends_on": ["WEB-012"]
+    },
+    {
+      "id": "WEB-015",
+      "requirement": "RF-WEB-06",
+      "title": "Listado de partos con foto de evidencia",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["audit"],
+      "description": "Partos por mes (v_partos): madre, padre, fecha, nacidos_vivos, nacidos_muertos, crías registradas, estatus de bloqueo (>30 días) y miniatura/visor de la foto de evidencia en S3.",
+      "acceptance_criteria": [
+        "Filtro por mes",
+        "Indicador de bloqueo >30 días",
+        "OWNER ve el parto bloqueado sin botones de edición ni borrado"
+      ],
+      "endpoints": ["GET /api/v1/births"],
+      "depends_on": ["WEB-003", "WEB-005"]
+    },
+    {
+      "id": "WEB-016",
+      "requirement": "RF-WEB-06",
+      "title": "Corrección auditada de partos",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["audit", "security"],
+      "description": "Solo ASSOCIATION_SUPERUSER y VET_TECHNICIAN. Modal para corregir errores de captura (ej. 1 a 2 crías) o registrar un parto fuera de la ventana de 30 días. Exige foto de evidencia y motivo textual. Registra en auditorias_parto (estado_anterior, estado_nuevo, aprobado_por_usuario_id, foto_evidencia_s3_key, motivo, creado_en).",
+      "acceptance_criteria": [
+        "No se puede enviar sin foto ni motivo",
+        "Otros roles no ven la acción",
+        "El cambio aparece en el historial inmutable"
+      ],
+      "endpoints": ["POST /api/v1/association/audits"],
+      "depends_on": ["WEB-015"]
+    },
+    {
+      "id": "WEB-017",
+      "requirement": "RF-WEB-06",
+      "title": "Historial inmutable de auditoría",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["audit"],
+      "description": "Vista de solo lectura de auditorias_parto con estado anterior y nuevo, usuario aprobador, foto y motivo.",
+      "acceptance_criteria": [
+        "Sin acciones de edición ni borrado",
+        "Muestra diferencia estado_anterior vs estado_nuevo"
+      ],
+      "endpoints": ["GET /api/v1/association/audits"],
+      "depends_on": ["WEB-016"]
+    },
+    {
+      "id": "WEB-018",
+      "requirement": "RF-WEB-06",
+      "title": "Conciliación de chips SINIIGA a 5 meses",
+      "phase": 1,
+      "priority": "low",
+      "labels": ["audit"],
+      "description": "Resumen mensual de nacimientos registrados vs crías fallecidas posteriores (status DECEASED). Valida que los aretes solicitados sean <= nacidos_vivos - crías_muertas_posteriores.",
+      "acceptance_criteria": [
+        "Resumen mensual",
+        "Marca los meses donde se piden más aretes de los permitidos"
+      ],
+      "endpoints": ["GET /api/v1/births"],
+      "depends_on": ["WEB-015"]
+    },
+    {
+      "id": "WEB-019",
+      "requirement": "RF-WEB-07",
+      "title": "Árbol genealógico interactivo (React Flow)",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["genealogy"],
+      "description": "Con @xyflow/react sobre v_genealogia (recursiva). Animal, padres, abuelos, bisabuelos (3–4 generaciones) con línea materna (M) y paterna (P). Navegación a descendientes. Soporte de ancestros externos (folio_padre_externo, folio_madre_externo).",
+      "acceptance_criteria": [
+        "Renderiza 3–4 generaciones",
+        "Se puede navegar a las crías",
+        "Ancestros externos se muestran distinguidos"
+      ],
+      "endpoints": ["GET /api/v1/animals/{id}/pedigree"],
+      "depends_on": ["WEB-010"]
+    },
+    {
+      "id": "WEB-020",
+      "requirement": "RF-WEB-07",
+      "title": "Nodos Rosa/Azul con datos del ejemplar",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["genealogy", "ui"],
+      "description": "Nodos Rosa (hembra) / Azul (macho) con texto e ícono; muestran folio interno, folio UNO, raza, color y criador.",
+      "acceptance_criteria": [
+        "Sexo identificable sin depender del color",
+        "Los cinco datos visibles en el nodo"
+      ],
+      "endpoints": [],
+      "depends_on": ["WEB-019"]
+    },
+    {
+      "id": "WEB-021",
+      "requirement": "RF-WEB-08",
+      "title": "Indicadores reproductivos (ECharts)",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["analytics", "charts"],
+      "description": "Sobre v_reproduccion_temporada: % de preñez, % de partos (paridas/preñadas y paridas/expuestas) y prolificidad (crías/parto).",
+      "acceptance_criteria": [
+        "Tres indicadores con gráficas",
+        "Datos solo del rancho activo"
+      ],
+      "endpoints": ["GET /api/v1/analytics/overview"],
+      "depends_on": ["WEB-003", "WEB-005"]
+    },
+    {
+      "id": "WEB-022",
+      "requirement": "RF-WEB-08",
+      "title": "Mortalidad y destete con alerta visual",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["analytics", "charts"],
+      "description": "% de nacimientos logrados, % mortalidad al nacimiento y predestete (alerta si supera la meta de 2%–3%), % de crías que llegan vivas al destete y peso promedio al destete.",
+      "acceptance_criteria": [
+        "Alerta visual con texto e ícono cuando supera 3%",
+        "Muestra los cuatro indicadores"
+      ],
+      "endpoints": ["GET /api/v1/analytics/overview"],
+      "depends_on": ["WEB-021"]
+    },
+    {
+      "id": "WEB-023",
+      "requirement": "RF-WEB-08",
+      "title": "Crecimiento: curvas de peso y ranking GDP",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["analytics", "charts"],
+      "description": "Sobre v_ranking_crecimiento y v_peso_etapa: curvas de peso y ranking de GDP vs promedio del rancho, con fecha estimada a peso de venta.",
+      "acceptance_criteria": [
+        "Curvas de peso por etapa",
+        "Ranking GDP comparado con el promedio del rancho",
+        "Fecha estimada a peso de venta"
+      ],
+      "endpoints": ["GET /api/v1/analytics/overview"],
+      "depends_on": ["WEB-021"]
+    },
+    {
+      "id": "WEB-024",
+      "requirement": "RF-WEB-08",
+      "title": "Tablero de destetes pendientes",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["analytics"],
+      "description": "Lista de corderos próximos a cumplir o que ya cumplieron 75 días (o el dias_meta_destete del rancho) sin destete confirmado.",
+      "acceptance_criteria": [
+        "Separa próximos de vencidos",
+        "Usa dias_meta_destete del rancho"
+      ],
+      "endpoints": ["GET /api/v1/analytics/overview"],
+      "depends_on": ["WEB-021", "WEB-007"]
+    },
+    {
+      "id": "WEB-025",
+      "requirement": "RF-WEB-08",
+      "title": "Alertas de vientres improductivos",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["analytics"],
+      "description": "Sobre v_historial_reproductivo_hembra: identifica borregas sin parir/gestar en el periodo o con mortalidad consecutiva de crías, con destino sugerido CULL (desecho a rastro) o SELL.",
+      "acceptance_criteria": [
+        "Lista etiquetada CULL/SELL",
+        "Destaca hembras con mortalidad consecutiva o infertilidad prolongada"
+      ],
+      "endpoints": ["GET /api/v1/analytics/overview"],
+      "depends_on": ["WEB-021"]
+    },
+    {
+      "id": "WEB-026",
+      "requirement": "RNF",
+      "title": "Seguridad: CORS, HTTPS y aislamiento por rancho",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["security", "nfr"],
+      "description": "Todo el tráfico por HTTPS (Amplify + CloudFront). Sin secretos en VITE_*. Un OWNER nunca debe ver datos de otro rancho manipulando encabezados o URLs (validación en backend); el cliente verifica que no lo permite.",
+      "acceptance_criteria": [
+        "Sin secretos en el bundle",
+        "Prueba manual: OWNER con X-Active-Ranch-Id ajeno recibe rechazo del backend"
+      ],
+      "endpoints": [],
+      "depends_on": ["WEB-003"]
+    },
+    {
+      "id": "WEB-027",
+      "requirement": "RNF",
+      "title": "UX de escritorio, accesibilidad y mensajes en español",
+      "phase": 1,
+      "priority": "medium",
+      "labels": ["ui", "nfr"],
+      "description": "Interfaz limpia (sin saturación tipo OvisWebs), alto contraste, Tailwind + shadcn/ui, >= 1280px con responsivo básico para pantallas medianas. Chrome, Edge y Firefox. Mensajes de error en español mexicano ganadero (importaciones Excel, bloqueo de 30 días).",
+      "acceptance_criteria": [
+        "Funciona en Chrome, Edge y Firefox a 1280px",
+        "Textos de error en español ganadero"
+      ],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-028",
+      "requirement": "Sección 7.2",
+      "title": "Verificación de criterios de aceptación de la demo MVP",
+      "phase": 1,
+      "priority": "high",
+      "labels": ["qa"],
+      "description": "Ensayo de los 5 criterios: (1) sincronización campo→portal, (2) multi-rancho sin re-login, (3) auditoría anti-fraude, (4) exportación .xlsx compatible, (5) árbol genealógico + vientres improductivos.",
+      "acceptance_criteria": [
+        "Los 5 criterios de 7.2 verificados antes del 4 de diciembre de 2026"
+      ],
+      "endpoints": [],
+      "depends_on": ["WEB-005", "WEB-013", "WEB-016", "WEB-019", "WEB-025"]
+    },
+    {
+      "id": "WEB-F2-001",
+      "requirement": "RF-WEB-F2-01",
+      "title": "Catálogo de alimentos y precios regionales",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["nutrition"],
+      "description": "Catálogo base (sorgo, soya, maíz grano/quebrado, canola, alfalfa, melaza, melacina, concentrados) con % proteína y energía (Mcal/kg) fijos. Precio $/kg TCO editable por productor (referencia Jalisco ~$6.00–$6.50/kg).",
+      "acceptance_criteria": [
+        "Proteína y energía no editables",
+        "Precio editable por productor"
+      ],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-F2-002",
+      "requirement": "RF-WEB-F2-01",
+      "title": "Simulador de mezclas por 5 etapas",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["nutrition"],
+      "description": "Etapas: Lactancia (18–22% prot.), Creep (16–18%), Recría (15–17%), Engorda (13–15%), Mantenimiento (7–10%). Mezcla con suma 100%, sustitución en vivo recalculando proteína, energía y costo $/kg TCO, e indica si cumple la etapa o requiere asesoría veterinaria.",
+      "acceptance_criteria": [
+        "Valida suma de 100%",
+        "Recalcula al instante al sustituir un ingrediente",
+        "Indica cumplimiento de la etapa"
+      ],
+      "endpoints": [],
+      "depends_on": ["WEB-F2-001"]
+    },
+    {
+      "id": "WEB-F2-003",
+      "requirement": "RF-WEB-F2-02",
+      "title": "Proyección productiva de 8 ciclos / 275 días",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["projection"],
+      "description": "Réplica de Proyeccion_Produccion_Ovinos.xlsx: parámetros editables (Hembras, RelHM, DEmp, DGest, DLact, DRecup, PPrenez, PParto, Prolif, mortalidades, Desecho, pesos, precios, consumos por 7 categorías), calendario, flujo de cabezas con reemplazos (2 ciclos de espera), consumo kg MS/TCO, conversión, costo de alimento por kg y margen.",
+      "acceptance_criteria": [
+        "Ciclo de 275 días (1.33 ciclos/año)",
+        "Proyección a 8 ciclos",
+        "Resultados coinciden con el libro Excel"
+      ],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-F2-004",
+      "requirement": "RF-WEB-F2-02",
+      "title": "Comparativa Real vs Proyectado",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["projection"],
+      "description": "Equivalente a la hoja Registro: calcula % de cumplimiento contra lo proyectado.",
+      "acceptance_criteria": ["% de cumplimiento por concepto"],
+      "endpoints": [],
+      "depends_on": ["WEB-F2-003"]
+    },
+    {
+      "id": "WEB-F2-005",
+      "requirement": "RF-WEB-F2-02",
+      "title": "Finanzas netas reales mensuales",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["finance"],
+      "description": "Sobre movimientos y v_finanzas_mensual: ingresos (venta en pie, pie de cría) menos egresos (alimentación, medicamentos, mano de obra, transporte, servicios, mantenimiento, infraestructura, compra de animales, pérdidas por mortalidad) = utilidad neta real.",
+      "acceptance_criteria": [
+        "Tablero mensual de ingresos y egresos",
+        "Utilidad neta real"
+      ],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-F2-006",
+      "requirement": "RF-WEB-F2-03",
+      "title": "Corrales y vista de cuarentena/enfermería",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["health"],
+      "description": "Mapa/listado de corrales con animales asignados y vista de Cuarentena/Enfermería (en tratamiento, con diagnóstico y medicación).",
+      "acceptance_criteria": ["Animales por corral", "Vista de animales en tratamiento"],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-F2-007",
+      "requirement": "RF-WEB-F2-03",
+      "title": "Calendario sanitario y cobertura de vacunas",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["health"],
+      "description": "Sobre esquemas_vacuna, v_estado_vacunas, v_cobertura_vacunas y v_historial_salud: vacunación, vitaminación, selenio y desparasitación, dosis, fechas, tiempos de retiro, % de cobertura y alertas de refuerzos vencidos o próximos.",
+      "acceptance_criteria": [
+        "Cuatro rubros",
+        "% de cobertura del rebaño",
+        "Alertas de refuerzos vencidos y próximos"
+      ],
+      "endpoints": [],
+      "depends_on": []
+    },
+    {
+      "id": "WEB-F2-008",
+      "requirement": "RF-WEB-F2-04",
+      "title": "Campeonatos y exposiciones",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["competitions"],
+      "description": "Registro y galería de participaciones en ferias (eventos_competencia, participaciones, v_competencias_animal: Gran Campeón/Campeona Suprema, raza, joven, cordera, juez, fecha, foto S3) integrados a la ficha y certificado.",
+      "acceptance_criteria": ["Registro de participaciones", "Galería visible en la ficha del ejemplar"],
+      "endpoints": [],
+      "depends_on": ["WEB-010"]
+    },
+    {
+      "id": "WEB-F2-009",
+      "requirement": "RF-WEB-F2-05",
+      "title": "Federación multi-asociación y ambientes staging/prod",
+      "phase": 2,
+      "priority": "low",
+      "labels": ["platform"],
+      "description": "Federación de asociaciones (Jalisco → Nacional México → Centroamérica) y separación formal de entornos staging vs prod en AWS.",
+      "acceptance_criteria": ["Asociaciones separadas por nivel", "Entornos staging y prod separados"],
+      "endpoints": [],
+      "depends_on": []
+    }
+  ]
+}
