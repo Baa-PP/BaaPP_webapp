@@ -33,6 +33,22 @@ function createApiError(status: number, message: string): ApiError {
   return err;
 }
 
+async function parseResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (typeof body?.message === "string" && body.message.length > 0) {
+        message = body.message;
+      }
+    } catch {
+      // sin cuerpo JSON
+    }
+    throw createApiError(res.status, message);
+  }
+  return res.json() as Promise<T>;
+}
+
 // --- Cola de peticiones concurrentes durante el refresh (WEB-002) ---
 let isRefreshing = false;
 
@@ -44,14 +60,15 @@ type QueueEntry = {
 const pendingQueue: QueueEntry[] = [];
 
 function flushQueue(error: unknown, newToken?: string): void {
-  pendingQueue.forEach(({ resolve, reject }) => {
+  const queue = [...pendingQueue];
+  pendingQueue.length = 0;
+  queue.forEach(({ resolve, reject }) => {
     if (error) {
       reject(error);
     } else {
       resolve(newToken!);
     }
   });
-  pendingQueue.length = 0;
 }
 
 function clearSession(): void {
@@ -109,13 +126,17 @@ export async function apiFetch<T>(
     if (isRefreshing) {
       return new Promise<T>((resolve, reject) => {
         pendingQueue.push({
-          resolve: (newToken: string) => {
-            headers.set("Authorization", `Bearer ${newToken}`);
-            resolve(
-              fetch(`${API_BASE_URL}${path}`, { ...init, headers }).then(
-                (r) => r.json() as Promise<T>
-              )
-            );
+          resolve: async (newToken: string) => {
+            try {
+              headers.set("Authorization", `Bearer ${newToken}`);
+              const res = await fetch(`${API_BASE_URL}${path}`, {
+                ...init,
+                headers,
+              });
+              resolve(await parseResponse<T>(res));
+            } catch (err) {
+              reject(err);
+            }
           },
           reject,
         });
@@ -124,45 +145,34 @@ export async function apiFetch<T>(
 
     // Primer 401: intentar refresh
     isRefreshing = true;
+    let newToken: string;
     try {
-      const newToken = await refreshSession();
-      flushQueue(null, newToken);
-
-      // Reintentar la petición original con el nuevo token
-      headers.set("Authorization", `Bearer ${newToken}`);
-      const retryRes = await fetch(`${API_BASE_URL}${path}`, {
-        ...init,
-        headers,
-      });
-
-      if (!retryRes.ok) {
-        throw createApiError(retryRes.status, `HTTP ${retryRes.status}`);
-      }
-
-      return retryRes.json() as Promise<T>;
-    } catch (err) {
-      flushQueue(err);
+      newToken = await refreshSession();
+    } catch (refreshErr) {
+      // El refresh en sí falló (token inválido/expirado) → limpiar sesión
+      flushQueue(refreshErr);
+      isRefreshing = false;
       clearSession();
       window.location.href = "/login";
-      throw err;
-    } finally {
-      isRefreshing = false;
+      throw refreshErr;
     }
+
+    // Refresh exitoso: drenar la cola ANTES de reintentar el request original
+    // para que peticiones encoladas no puedan unirse a una cola ya cerrada
+    flushQueue(null, newToken);
+    isRefreshing = false;
+
+    // Reintentar el request original con el nuevo token (separado del bloque
+    // de refresh: errores 5xx o de red aquí NO deben limpiar la sesión)
+    headers.set("Authorization", `Bearer ${newToken}`);
+    const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers,
+    });
+
+    return parseResponse<T>(retryRes);
   }
 
-  // --- Otros errores HTTP ---
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const body = await response.json();
-      if (typeof body?.message === "string" && body.message.length > 0) {
-        message = body.message;
-      }
-    } catch {
-      // sin cuerpo JSON
-    }
-    throw createApiError(response.status, message);
-  }
-
-  return response.json() as Promise<T>;
+  // --- Otros errores HTTP o respuesta exitosa ---
+  return parseResponse<T>(response);
 }
