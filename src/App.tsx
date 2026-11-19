@@ -42,15 +42,15 @@ async function api(path:string,s:Session,onRefresh?:(n:Session)=>void){
 
 export default function App(){
   const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
-  const [animals,setAnimals]=useState<Animal[]>([]),[animal,setAnimal]=useState<Animal|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState('');
+  const [animalsState,setAnimalsState]=useState<{ranchId:string|null;rows:Animal[]}>({ranchId:null,rows:[]}),[animalState,setAnimalState]=useState<{ranchId:string|null;route:string;data:Animal|null}>({ranchId:null,route:'',data:null}),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const empty={folio_interno:'',siniiga_chip:'',registro_uno:'',sex:'',life_stage:'',reproductive_status:'',breed:'',status:''},[filters,setFilters]=useState(empty),[applied,setApplied]=useState(empty);
+  const activeRanchId=s?.activeRanchId||s?.ranches[0]?.id||s?.ranches[0]?.ranchId||'';
 
   useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
 
   useEffect(()=>{
-    if(!s){
-      setAnimals([]);setAnimal(null);
-    }
+    setAnimalsState({ranchId:null,rows:[]});
+    setAnimalState({ranchId:null,route:'',data:null});
   },[s?.username]);
 
   useEffect(()=>{
@@ -81,19 +81,22 @@ export default function App(){
     if(!s||!canInventory(s)||['login','sin-permisos','auditoria-nacimientos'].includes(url))return;
     let stop=false;setLoading(true);setError('');
     const detail=url.startsWith('inventario/'),path=detail?'/animals/'+encodeURIComponent(url.slice(11)):'/animals'+qs(applied);
+    if(detail)setAnimalState(prev=>prev.ranchId===activeRanchId&&prev.route===url?prev:{ranchId:null,route:'',data:null});
+    else setAnimalsState(prev=>prev.ranchId===activeRanchId?prev:{ranchId:null,rows:[]});
     api(path,s,setS).then(async r=>{
       if(!r.ok)throw Error('No pudimos cargar la información del rebaño.');
       const p=await payload(r);
       if(stop)return;
-      if(detail)setAnimal(data(p).animal||data(p));else setAnimals(rows(p));
+      if(detail)setAnimalState({ranchId:activeRanchId,route:url,data:data(p).animal||data(p)});
+      else setAnimalsState({ranchId:activeRanchId,rows:rows(p)});
     }).catch(e=>{
       if(stop)return;
       if(e.message==='SESSION_EXPIRED'){
-        sessionStorage.removeItem(KEY);setS(null);setAnimals([]);setAnimal(null);location.hash='/login';
+        sessionStorage.removeItem(KEY);setS(null);setAnimalsState({ranchId:null,rows:[]});setAnimalState({ranchId:null,route:'',data:null});location.hash='/login';
       }else setError(e.message||'Error al consultar el inventario.');
     }).finally(()=>!stop&&setLoading(false));
     return()=>{stop=true};
-  },[s,url,applied]);
+  },[s,url,applied,activeRanchId]);
 
   async function login(e:FormEvent){
     e.preventDefault();setBusy(true);setLoginErr('');
@@ -102,8 +105,9 @@ export default function App(){
       if(!r.ok)throw Error(r.status===401?'Usuario o contraseña incorrectos.':'No se pudo iniciar sesión.');
       const d=data(p),t=token(p),u=d.user||{};
       if(!t)throw Error('El servidor no devolvió el token de acceso.');
-      let role=String(u.role||d.role||'').toUpperCase().replace(/^ROLE_/,'');
-      try{if(!role)role=JSON.parse(atob(t.split('.')[1])).role||''}catch{}
+      let role=String(u.role||d.role||'');
+      try{if(!role)role=String(JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role||'')}catch{}
+      role=role.toUpperCase().replace(/^ROLE_/,'');
       const n:Session={accessToken:t,refreshToken:d.refreshToken||d.refresh_token,role,username:u.username||user.trim(),ranches:ranches(p),permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:u.ranchId||u.ranch_id||d.ranchId||d.ranch_id};
       if(AUDIT.includes(role)&&!n.ranches.length){
         try{const rr=await fetch(API+'/ranches',{headers:{Authorization:'Bearer '+t}});if(rr.ok)n.ranches=ranches(await payload(rr))}catch{}
@@ -120,8 +124,8 @@ export default function App(){
   function logout(){
     sessionStorage.removeItem(KEY);
     setS(null);
-    setAnimals([]);
-    setAnimal(null);
+    setAnimalsState({ranchId:null,rows:[]});
+    setAnimalState({ranchId:null,route:'',data:null});
     setFilters(empty);
     setApplied(empty);
     location.hash='/login';
@@ -137,23 +141,29 @@ export default function App(){
 
   if(!s||url==='login')return <main className="login-page"><form className="login-card" onSubmit={login}><a className="brand-mark">BAAP <span>PORTAL DE RANCHO</span></a><p className="eyebrow">GESTIÓN OVINA, EN ORDEN</p><h1>Qué gusto verte</h1><p className="muted">Entra para consultar el inventario de tu rancho.</p><label>Usuario<input autoComplete="username" value={user} onChange={e=>setUser(e.target.value)} required/></label><label>Contraseña<input type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} required/></label>{loginErr&&<p className="error" role="alert">{loginErr}</p>}<button className="primary wide" disabled={busy}>{busy?'Validando…':'Entrar al portal'}</button></form></main>;
 
-  const show=canInventory(s),multi=AUDIT.includes(s.role),detail=url.startsWith('inventario/'),activeRanchId=s.activeRanchId||s.ranches[0]?.id||s.ranches[0]?.ranchId||'';
+  const show=canInventory(s),multi=AUDIT.includes(s.role),detail=url.startsWith('inventario/');
+  const animals=animalsState.ranchId===activeRanchId?animalsState.rows:[];
+  const animal=animalState.ranchId===activeRanchId&&animalState.route===url?animalState.data:null;
 
   return <div className="portal"><header><a className="brand-mark">BAAP <span>PORTAL DE RANCHO</span></a><div className="head-right">{multi&&s.ranches.length>0&&<label className="ranch">RANCHO ACTIVO<select value={activeRanchId} onChange={e=>selectRanch(e.target.value)}>{s.ranches.map((r,i)=><option key={r.id||r.ranchId||i} value={r.id||r.ranchId}>{r.name||'Rancho '+(i+1)}</option>)}</select></label>}<span>{s.username}</span><small className="role">{s.role}</small><button className="link-button" onClick={logout}>Salir</button></div></header><div className="layout"><aside><small>MENÚ</small>{show&&<a className={!detail?'selected':''} href="#/inventario">▦ &nbsp;Inventario</a>}{AUDIT.includes(s.role)&&<a className={url==='auditoria-nacimientos'?'selected':''} href="#/auditoria-nacimientos">◷ &nbsp;Bandeja de auditoría</a>}</aside><main>
   {!show||url==='sin-permisos'?<section className="empty"><h1>Sin módulos habilitados</h1><p>Tu cuenta no tiene permisos para consultar módulos del portal.</p></section>:url==='auditoria-nacimientos'?<><p className="eyebrow">ACCESO POR ROL</p><h1>Bandeja de auditoría</h1><p className="muted">La consulta se habilitará en el módulo correspondiente.</p></>:detail?<><button className="back" onClick={()=>location.hash='/inventario'}>← Volver al inventario</button>{loading&&!animal?<p>Cargando ficha…</p>:error?<p className="error">{error}</p>:animal&&<Certificate a={animal}/>}</>:<>
   <div className="title-row"><div><p className="eyebrow">REBAÑO · REGISTRO INDIVIDUAL</p><h1>Inventario del rebaño</h1><p className="muted">Consulta, filtra y abre la ficha certificada de cada ejemplar.</p></div><div className="count"><b>{animals.length}</b>ejemplares</div></div>
   <form className="filters" onSubmit={e=>{e.preventDefault();setApplied({...filters})}}><div className="filter-title"><b>⌕ &nbsp;Buscar y filtrar</b><button type="button" className="link-button" onClick={()=>{setFilters(empty);setApplied(empty)}}>Limpiar filtros</button></div><div className="searches">{[['folio_interno','Folio interno','Ej. 79'],['siniiga_chip','Chip SINIIGA','484.•••'],['registro_uno','Registro UNO','Ej. 268309MM-RP']].map(([k,n,p])=><label key={k}>{n}<input placeholder={p} value={filters[k as keyof typeof empty]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></label>)}</div><div className="facets"><label>Sexo<select value={filters.sex} onChange={e=>setFilters({...filters,sex:e.target.value})}><option value="">Todos</option><option value="FEMALE">Hembra</option><option value="MALE">Macho</option></select></label><label>Etapa de vida<select value={filters.life_stage} onChange={e=>setFilters({...filters,life_stage:e.target.value})}><option value="">Todas</option>{stages.map(x=><option key={x} value={x}>{label(x)}</option>)}</select></label><label>Estado reproductivo<select value={filters.reproductive_status} onChange={e=>setFilters({...filters,reproductive_status:e.target.value})}><option value="">Todos</option>{repro.map(x=><option key={x} value={x}>{label(x)}</option>)}</select></label><label>Raza<input placeholder="Todas las razas" value={filters.breed} onChange={e=>setFilters({...filters,breed:e.target.value})}/></label><label>Estado<select value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos</option>{states.map(x=><option key={x} value={x}>{label(x)}</option>)}</select></label><button className="primary">Aplicar filtros →</button></div></form>
-  <section className="table"><div className="table-head"><b>Ejemplares</b><span>{loading?'Actualizando…':animals.length+' registros'}</span><small>● Datos del rancho</small></div>{error&&<p className="error">{error}</p>}{!loading&&!error&&!animals.length?<div className="empty"><h3>No encontramos ejemplares</h3><p>Prueba con otros datos o limpia los filtros.</p></div>:<div className="scroll"><table><thead><tr><th>Ejemplar</th><th>Identificación</th><th>Sexo / raza</th><th>Etapa y reproducción</th><th>Estado</th><th></th></tr></thead><tbody>{animals.map(a=><tr key={a.id}><td><button className="animal-link" onClick={()=>{setAnimal(null);location.hash='/inventario/'+a.id}}>{a.folio_interno||'Sin folio'}<small>Nació {date(a.birth_date||a.fecha_nacimiento)}</small></button></td><td>{a.siniiga_chip||a.chip_siniiga||'—'}<small>UNO · {a.registro_uno||'—'}</small></td><td><span className={'sex '+(a.sex==='FEMALE'?'female':'male')}>{a.sex==='FEMALE'?'♀ Hembra':'♂ Macho'}</span><small>{a.breed||a.raza||'Raza sin especificar'}</small></td><td>{label(a.life_stage)}<small>{label(a.reproductive_status)}</small></td><td><span className={'state '+String(a.status||'').toLowerCase()}>{label(a.status)}</span></td><td><button className="open" aria-label="Abrir ficha" onClick={()=>location.hash='/inventario/'+a.id}>↗</button></td></tr>)}</tbody></table></div>}</section></>}
+  <section className="table"><div className="table-head"><b>Ejemplares</b><span>{loading?'Actualizando…':animals.length+' registros'}</span><small>● Datos del rancho</small></div>{error&&<p className="error">{error}</p>}{!loading&&!error&&!animals.length?<div className="empty"><h3>No encontramos ejemplares</h3><p>Prueba con otros datos o limpia los filtros.</p></div>:<div className="scroll"><table><thead><tr><th>Ejemplar</th><th>Identificación</th><th>Sexo / raza</th><th>Etapa y reproducción</th><th>Estado</th><th></th></tr></thead><tbody>{animals.map(a=><tr key={a.id}><td><button className="animal-link" onClick={()=>{setAnimalState({ranchId:null,route:'',data:null});location.hash='/inventario/'+a.id}}>{a.folio_interno||'Sin folio'}<small>Nació {date(a.birth_date||a.fecha_nacimiento)}</small></button></td><td>{a.siniiga_chip||a.chip_siniiga||'—'}<small>UNO · {a.registro_uno||'—'}</small></td><td><span className={'sex '+(a.sex==='FEMALE'?'female':'male')}>{a.sex==='FEMALE'?'♀ Hembra':'♂ Macho'}</span><small>{a.breed||a.raza||'Raza sin especificar'}</small></td><td>{label(a.life_stage)}<small>{label(a.reproductive_status)}</small></td><td><span className={'state '+String(a.status||'').toLowerCase()}>{label(a.status)}</span></td><td><button className="open" aria-label="Abrir ficha" onClick={()=>location.hash='/inventario/'+a.id}>↗</button></td></tr>)}</tbody></table></div>}</section></>}
   </main></div></div>
 }
 
 function Certificate({a}:{a:Animal}){
   const female=a.sex==='FEMALE',ms=list(a),photo=a.presigned_photo_url||a.photo_presigned_url||a.photo_url||a.photoUrl;
-  const gRaw=ms.filter(m=>Number.isFinite(kg(m))&&(m.measured_at||m.fecha)).sort((x,y)=>new Date(x.measured_at||x.fecha!).getTime()-new Date(y.measured_at||y.fecha!).getTime());
-  const g=gRaw.slice(1).map((m,i)=>{
-    const d=(new Date(m.measured_at||m.fecha!).getTime()-new Date(gRaw[i].measured_at||gRaw[i].fecha!).getTime())/86400000;
-    return d>0?(kg(m)-kg(gRaw[i]))/d:0;
-  });
+  const gRaw=ms
+    .map(m=>({w:kg(m),t:new Date(m.measured_at||m.fecha||'').getTime()}))
+    .filter(x=>Number.isFinite(x.w)&&Number.isFinite(x.t))
+    .sort((x,y)=>x.t-y.t);
+  const g=gRaw.slice(1).reduce<number[]>((acc,m,i)=>{
+    const d=(m.t-gRaw[i].t)/86400000;
+    if(Number.isFinite(d)&&d>0)acc.push((m.w-gRaw[i].w)/d);
+    return acc;
+  },[]);
   const milestones=['BIRTH','WEANING','DAY_120','DAY_150','EVALUATION'];
   const sire=a.sire_name||a.padre_name||a.padre||a.sire;
   const sireUno=a.sire_uno||a.folio_uno_padre||a.sire_folio||a.padre_folio;
