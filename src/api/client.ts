@@ -12,6 +12,16 @@ const API_BASE_URL =
  *
  * Los errores HTTP se normalizan a un único tipo { status, message }
  * para que todos los módulos los manejen igual.
+ *
+ * WEB-002 — Interceptor 401 Unauthorized con cola de peticiones concurrentes.
+ *
+ * Ante un 401:
+ *   1. Si hay un token más nuevo ya almacenado → reintenta con él sin refrescar.
+ *   2. Si hay refreshToken → intenta POST /api/v1/auth/refresh una sola vez,
+ *      encolando cualquier petición concurrente para reintentarlas después.
+ *   3. Si el refresh tiene éxito → actualiza jwt_token y reintenta la cola.
+ *   4. Si el refresh falla o no hay refreshToken → limpia la sesión y
+ *      redirige a /login (con guardia de generación de sesión).
  */
 
 export interface ApiError extends Error {
@@ -23,6 +33,92 @@ function createApiError(status: number, message: string): ApiError {
   err.status = status;
   return err;
 }
+
+async function parseResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (typeof body?.message === "string" && body.message.length > 0) {
+        message = body.message;
+      }
+    } catch {
+      // sin cuerpo JSON
+    }
+    throw createApiError(res.status, message);
+  }
+  return res.json() as Promise<T>;
+}
+
+// --- Contador de generación de sesión para invalidar refresh obsoletos ---
+let sessionGeneration = 0;
+
+export function getSessionGeneration(): number {
+  return sessionGeneration;
+}
+
+export function clearSession(): void {
+  sessionGeneration += 1;
+  localStorage.removeItem("jwt_token");
+  localStorage.removeItem("jwt_refresh_token");
+  localStorage.removeItem("baapp_user");
+  useRanchContextStore.getState().setActiveRanchId(null);
+}
+
+// --- Cola de peticiones concurrentes durante el refresh (WEB-002) ---
+let isRefreshing = false;
+
+type QueueEntry = {
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+};
+
+const pendingQueue: QueueEntry[] = [];
+
+function flushQueue(error: unknown, newToken?: string): void {
+  const queue = [...pendingQueue];
+  pendingQueue.length = 0;
+  queue.forEach(({ resolve, reject }) => {
+    if (error) {
+      reject(error);
+    } else {
+      resolve(newToken!);
+    }
+  });
+}
+
+/** Intenta refrescar el JWT. Devuelve el nuevo token o lanza un error. */
+async function refreshSession(): Promise<string> {
+  const refreshToken = localStorage.getItem("jwt_refresh_token");
+  if (!refreshToken) {
+    throw createApiError(401, "No hay refresh token disponible.");
+  }
+
+  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+
+  if (!res.ok) {
+    throw createApiError(res.status, "Refresh token inválido o expirado.");
+  }
+
+  const data = await res.json();
+  const newToken: string =
+    data.token || data.accessToken || data.access_token || data.jwt;
+  if (!newToken) {
+    throw createApiError(401, "El servidor no devolvió un token de acceso renovado.");
+  }
+
+  localStorage.setItem("jwt_token", newToken);
+  if (typeof data.refreshToken === "string" && data.refreshToken.length > 0) {
+    localStorage.setItem("jwt_refresh_token", data.refreshToken);
+  }
+  return newToken;
+}
+
+// --- apiFetch principal ---
 
 export async function apiFetch<T>(
   path: string,
@@ -38,18 +134,89 @@ export async function apiFetch<T>(
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
 
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const body = await response.json();
-      if (typeof body?.message === "string" && body.message.length > 0) {
-        message = body.message;
-      }
-    } catch {
-      // sin cuerpo JSON
+  // --- WEB-002: interceptor 401 ---
+  if (response.status === 401) {
+    // 1. Comparar el token usado en la petición fallida con el token actualmente almacenado.
+    // Si ya existe un token más nuevo (refrescado por otra petición concurrente), reintentar sin refrescar otra vez.
+    const currentToken = localStorage.getItem("jwt_token");
+    if (currentToken && currentToken !== token) {
+      headers.set("Authorization", `Bearer ${currentToken}`);
+      const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+        ...init,
+        headers,
+      });
+      return parseResponse<T>(retryRes);
     }
-    throw createApiError(response.status, message);
+
+    // 2. Si ya hay un refresh en curso con el token actual, encolar esta petición
+    if (isRefreshing) {
+      return new Promise<T>((resolve, reject) => {
+        pendingQueue.push({
+          resolve: async (newToken: string) => {
+            try {
+              headers.set("Authorization", `Bearer ${newToken}`);
+              const res = await fetch(`${API_BASE_URL}${path}`, {
+                ...init,
+                headers,
+              });
+              resolve(await parseResponse<T>(res));
+            } catch (err) {
+              reject(err);
+            }
+          },
+          reject,
+        });
+      });
+    }
+
+    // 3. Primer 401: capturar la generación de sesión antes de iniciar refresh
+    isRefreshing = true;
+    const initialSessionGen = sessionGeneration;
+    let newToken: string;
+    try {
+      newToken = await refreshSession();
+    } catch (refreshErr) {
+      flushQueue(refreshErr);
+      isRefreshing = false;
+
+      // Si la sesión cambió desde que inició el refresh (ej. logout mientras la petición volaba),
+      // descartar la acción para evitar limpiar o redirigir en una sesión nueva
+      if (sessionGeneration !== initialSessionGen) {
+        throw refreshErr;
+      }
+
+      clearSession();
+      if (window.location.hash) {
+        window.location.hash = "/login";
+      } else {
+        window.location.href = "/login";
+      }
+      throw refreshErr;
+    }
+
+    // Si la sesión cambió antes de que el refresh exitoso fuera aplicado
+    if (sessionGeneration !== initialSessionGen) {
+      flushQueue(new Error("Sesión cancelada"));
+      isRefreshing = false;
+      throw createApiError(401, "Sesión cancelada");
+    }
+
+    // Refresh exitoso: drenar la cola ANTES de reintentar el request original
+    // para que peticiones encoladas no puedan unirse a una cola ya cerrada
+    flushQueue(null, newToken);
+    isRefreshing = false;
+
+    // Reintentar el request original con el nuevo token (separado del bloque
+    // de refresh: errores 5xx o de red aquí NO deben limpiar la sesión)
+    headers.set("Authorization", `Bearer ${newToken}`);
+    const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers,
+    });
+
+    return parseResponse<T>(retryRes);
   }
 
-  return response.json() as Promise<T>;
+  // --- Otros errores HTTP o respuesta exitosa ---
+  return parseResponse<T>(response);
 }
