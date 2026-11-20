@@ -41,7 +41,7 @@ async function api(path:string,s:Session,onRefresh?:(n:Session)=>void){
 }
 
 export default function App(){
-  const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
+  const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
   const [animalsState,setAnimalsState]=useState<{ranchId:string|null;rows:Animal[]}>({ranchId:null,rows:[]}),[animalState,setAnimalState]=useState<{ranchId:string|null;route:string;data:Animal|null}>({ranchId:null,route:'',data:null}),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const empty={folio_interno:'',siniiga_chip:'',registro_uno:'',sex:'',life_stage:'',reproductive_status:'',breed:'',status:''},[filters,setFilters]=useState(empty),[applied,setApplied]=useState(empty);
   const activeRanchId=s?.activeRanchId||s?.ranches[0]?.id||s?.ranches[0]?.ranchId||'';
@@ -102,7 +102,7 @@ export default function App(){
     e.preventDefault();setBusy(true);setLoginErr('');
     try{
       const r=await fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
-      if(!r.ok)throw Error(r.status===401?'Usuario o contraseña incorrectos.':'No se pudo iniciar sesión.');
+      if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
       const d=data(p),t=token(p),u=d.user||{};
       if(!t)throw Error('El servidor no devolvió el token de acceso.');
       let role=String(u.role||d.role||'');
@@ -114,7 +114,7 @@ export default function App(){
       }
       if(n.ranches[0]&&!n.activeRanchId)n.activeRanchId=n.ranches[0].id||n.ranches[0].ranchId;
       sessionStorage.setItem(KEY,JSON.stringify(n));
-      setS(n);setPass('');
+      setS(n);setPass('');setShowPassword(false);
       location.hash=canInventory(n)?'/inventario':'/sin-permisos';
     }catch(e){
       setLoginErr(e instanceof Error?e.message:'No se pudo iniciar sesión.');
@@ -124,6 +124,8 @@ export default function App(){
   function logout(){
     sessionStorage.removeItem(KEY);
     setS(null);
+    setPass('');
+    setShowPassword(false);
     setAnimalsState({ranchId:null,rows:[]});
     setAnimalState({ranchId:null,route:'',data:null});
     setFilters(empty);
@@ -139,7 +141,81 @@ export default function App(){
     }
   }
 
-  if(!s||url==='login')return <main className="login-page"><form className="login-card" onSubmit={login}><a className="brand-mark">BAAP <span>PORTAL DE RANCHO</span></a><p className="eyebrow">GESTIÓN OVINA, EN ORDEN</p><h1>Qué gusto verte</h1><p className="muted">Entra para consultar el inventario de tu rancho.</p><label>Usuario<input autoComplete="username" value={user} onChange={e=>setUser(e.target.value)} required/></label><label>Contraseña<input type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} required/></label>{loginErr&&<p className="error" role="alert">{loginErr}</p>}<button className="primary wide" disabled={busy}>{busy?'Validando…':'Entrar al portal'}</button></form></main>;
+  if(!s||url==='login'){
+    return (
+      <div className="login-shell">
+        <header className="login-topbar">
+          <div className="login-topbar-brand">
+            BaaPP <span>OviApp · Portal Web</span>
+          </div>
+          <span className="login-topbar-context">Gestión Ganadera Ovina</span>
+        </header>
+        <main className="login-page">
+          <form className="login-card" onSubmit={login}>
+            <div className="login-card-header">
+              <p className="eyebrow">Acceso al portal</p>
+              <h1>Iniciar sesión</h1>
+              <p className="intro">
+                Ingresa con tu cuenta de productor, técnico o asociación para consultar el rebaño.
+              </p>
+            </div>
+            <div className="login-card-body">
+              <div className="field">
+                <label htmlFor="username">Usuario</label>
+                <input
+                  id="username"
+                  name="username"
+                  autoComplete="username"
+                  placeholder="Ej. rancho.sauces"
+                  value={user}
+                  onChange={e=>setUser(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="password">Contraseña</label>
+                <div className="password-row">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword?'text':'password'}
+                    autoComplete="current-password"
+                    placeholder="Ingresa tu contraseña"
+                    value={pass}
+                    onChange={e=>setPass(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={()=>setShowPassword(v=>!v)}
+                    aria-label={showPassword?'Ocultar contraseña':'Mostrar contraseña'}
+                  >
+                    {showPassword?'Ocultar':'Mostrar'}
+                  </button>
+                </div>
+              </div>
+              {loginErr&&(
+                <p className="error" role="alert">
+                  {loginErr}
+                </p>
+              )}
+              <button className="primary wide" type="submit" disabled={busy}>
+                {busy?'Validando credenciales…':'Entrar al portal'}
+              </button>
+            </div>
+            <div className="login-card-footer">
+              <span className="security-status">
+                <span className="security-dot" aria-hidden="true" />
+                Acceso seguro HTTPS
+              </span>
+              <span>AGLOT · Pelifolk · SADER</span>
+            </div>
+          </form>
+        </main>
+      </div>
+    );
+  }
 
   const show=canInventory(s),multi=AUDIT.includes(s.role),detail=url.startsWith('inventario/');
   const animals=animalsState.ranchId===activeRanchId?animalsState.rows:[];
