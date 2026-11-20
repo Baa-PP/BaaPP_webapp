@@ -480,6 +480,10 @@ a {
     flex-wrap: wrap;
   }
 
+  .account {
+    flex-wrap: wrap;
+  }
+
   .content {
     padding: 24px 16px;
   }

@@ -157,7 +157,7 @@ export default function App() {
       // fix(issue-1): only commit if no logout happened since we started.
       if (gen !== sessionGenRef.current) return;
       saveSession(newSession);
-      setSession(newSession); setPassword(''); window.location.hash = '/inicio';
+      setSession(newSession); setPassword(''); setShowPassword(false); window.location.hash = '/inicio';
 
       if (!ranchesFrom(payload)) {
         try {
@@ -199,7 +199,7 @@ export default function App() {
     // fix(issue-1): bump the generation so any pending login/catalog async
     // completions belonging to the current session see a stale gen and bail out.
     sessionGenRef.current += 1;
-    sessionStorage.removeItem(STORAGE_KEY); setSession(null); setPassword('');
+    sessionStorage.removeItem(STORAGE_KEY); setSession(null); setPassword(''); setShowPassword(false);
     window.location.hash = '/login';
   }
 
