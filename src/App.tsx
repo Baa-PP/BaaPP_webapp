@@ -103,6 +103,7 @@ export default function App() {
   const [route, setRoute] = useState(currentRoute);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [catalogError, setCatalogError] = useState('');
@@ -203,36 +204,150 @@ export default function App() {
   }
 
   if (!session || route === 'login') {
-    return <main className="login-page"><form className="login-card" onSubmit={handleLogin}>
-      <div className="brand-mark">BAAP <span>PORTAL DE RANCHO</span></div>
-      <p className="eyebrow">Gestión ovina, en orden</p>
-      <h1>Qué gusto verte</h1>
-      <p className="intro">Entra para consultar la información de tu rancho.</p>
-      <label htmlFor="username">Usuario</label>
-      <input id="username" name="username" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} required />
-      <label htmlFor="password">Contraseña</label>
-      <input id="password" name="password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required />
-      {error && <p className="error" role="alert">{error}</p>}
-      <button className="primary" type="submit" disabled={busy}>{busy ? 'Revisando tus datos…' : 'Entrar al portal'}</button>
-      <p className="security-note">Tu acceso se valida de forma segura con BaaP.</p>
-    </form></main>;
+    return (
+      <div className="login-shell">
+        <header className="login-topbar">
+          <div className="login-topbar-brand">
+            BaaPP <span>OviApp · Portal Web</span>
+          </div>
+          <span className="login-topbar-context">Gestión Ganadera Ovina</span>
+        </header>
+        <main className="login-page">
+          <form className="login-card" onSubmit={handleLogin}>
+            <div className="login-card-header">
+              <p className="eyebrow">Acceso al portal</p>
+              <h1>Iniciar sesión</h1>
+              <p className="intro">
+                Ingresa con tu cuenta de productor, técnico o asociación para consultar el rebaño.
+              </p>
+            </div>
+            <div className="login-card-body">
+              <div className="field">
+                <label htmlFor="username">Usuario</label>
+                <input
+                  id="username"
+                  name="username"
+                  autoComplete="username"
+                  placeholder="Ej. rancho.sauces"
+                  value={username}
+                  onChange={event => setUsername(event.target.value)}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="password">Contraseña</label>
+                <div className="password-row">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    placeholder="Ingresa tu contraseña"
+                    value={password}
+                    onChange={event => setPassword(event.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password"
+                    onClick={() => setShowPassword(value => !value)}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showPassword ? 'Ocultar' : 'Mostrar'}
+                  </button>
+                </div>
+              </div>
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+              <button className="primary" type="submit" disabled={busy}>
+                {busy ? 'Validando credenciales…' : 'Entrar al portal'}
+              </button>
+            </div>
+            <div className="login-card-footer">
+              <span className="security-status">
+                <span className="security-dot" aria-hidden="true" />
+                Acceso seguro HTTPS
+              </span>
+              <span>AGLOT · Pelifolk · SADER</span>
+            </div>
+          </form>
+        </main>
+      </div>
+    );
   }
 
   const isAudit = route === 'auditoria-nacimientos';
-  return <div className="portal-shell">
-    <header className="topbar"><a className="brand-mark" href="#/inicio">BAAP <span>PORTAL DE RANCHO</span></a>
-      <div className="account"><span>{session.username}</span><span className="role-pill">{session.role || 'USUARIO'}</span><button className="text-button" onClick={logout}>Salir</button></div>
-    </header>
-    <div className="portal-layout"><aside className="sidebar"><p className="eyebrow">MENÚ</p>
-      <a className={!isAudit ? 'nav-link active' : 'nav-link'} href="#/inicio">Inicio</a>
-      {AUDIT_ROLES.has(session.role) && <a className={isAudit ? 'nav-link active' : 'nav-link'} href="#/auditoria-nacimientos">Bandeja de auditoría de nacimientos</a>}
-    </aside><main className="content"><p className="eyebrow">{isAudit ? 'ACCESO POR ROL' : 'PORTAL BaaP'}</p>
-      <h1>{isAudit ? 'Bandeja de auditoría de nacimientos' : `Bienvenido${session.username ? `, ${session.username}` : ''}`}</h1>
-      {isAudit
-        ? <p className="intro">Tu rol tiene acceso a esta sección. La consulta de auditorías se incorpora en su requisito funcional correspondiente.</p>
-        : <><p className="intro">Ya estás dentro. Tu sesión y los ranchos disponibles quedaron guardados para esta visita.</p>
-          {catalogError && <p className="error" role="status">{catalogError}</p>}
-          <div className="summary-card"><span className="summary-number">{session.ranches.length}</span><span>rancho{session.ranches.length === 1 ? '' : 's'} disponible{session.ranches.length === 1 ? '' : 's'} para tu cuenta</span></div></>}
-    </main></div>
-  </div>;
+  return (
+    <div className="portal-shell">
+      <aside className="sidebar">
+        <a className="sidebar-brand" href="#/inicio">
+          <strong>BaaPP (OviApp)</strong>
+          <span>Portal de Rancho y Asociación</span>
+        </a>
+        <nav className="sidebar-nav" aria-label="Navegación principal">
+          <p className="sidebar-label">Módulos</p>
+          <a className={!isAudit ? 'nav-link active' : 'nav-link'} href="#/inicio">
+            Inicio
+          </a>
+          {AUDIT_ROLES.has(session.role) && (
+            <a className={isAudit ? 'nav-link active' : 'nav-link'} href="#/auditoria-nacimientos">
+              Bandeja de auditoría
+            </a>
+          )}
+        </nav>
+      </aside>
+      <div className="portal-main">
+        <header className="topbar">
+          <span className="topbar-title">
+            {isAudit ? 'Bandeja de auditoría de nacimientos' : 'Panel principal'}
+          </span>
+          <div className="account">
+            <span>{session.username}</span>
+            <span className="role-badge">{session.role || 'USUARIO'}</span>
+            <button className="secondary-button" onClick={logout}>
+              Cerrar sesión
+            </button>
+          </div>
+        </header>
+        <main className="content">
+          <p className="eyebrow">{isAudit ? 'Acceso por rol' : 'Portal BaaPP'}</p>
+          <h1>
+            {isAudit
+              ? 'Bandeja de auditoría de nacimientos'
+              : `Bienvenido${session.username ? `, ${session.username}` : ''}`}
+          </h1>
+          {isAudit ? (
+            <p className="intro">
+              Tu rol tiene acceso a esta sección. La consulta de auditorías se incorpora en su requisito funcional correspondiente.
+            </p>
+          ) : (
+            <>
+              <p className="intro">
+                Sesión iniciada correctamente. Los ranchos autorizados para tu cuenta quedaron guardados para esta visita.
+              </p>
+              {catalogError && (
+                <p className="error" role="status">
+                  {catalogError}
+                </p>
+              )}
+              <div className="summary-card">
+                <span className="summary-number">{session.ranches.length}</span>
+                <div>
+                  <strong>Ranchos disponibles</strong>
+                  <span>
+                    {session.ranches.length === 1
+                      ? 'rancho autorizado para tu cuenta'
+                      : 'ranchos autorizados para tu cuenta'}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </main>
+      </div>
+    </div>
+  );
 }
