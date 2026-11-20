@@ -1,209 +1,147 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+type Animal={id:string;folio_interno?:string;siniiga_chip?:string;chip_siniiga?:string;registro_uno?:string;adn?:string;sex?:string;life_stage?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birth_date?:string;fecha_nacimiento?:string;criador_name?:string;owner_name?:string;ranch_name?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortality_date?:string;mortality_cause?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conception_method?:string;metodo_concepcion?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
+type Measure={milestone?:string;hito?:string;weight_kg?:number;peso_kg?:number;measured_at?:string;fecha?:string;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
+type Ranch={id?:string;ranchId?:string;name?:string};
+type Session={accessToken:string;refreshToken?:string;role:string;username:string;ranches:Ranch[];permissions?:Record<string,any>;activeRanchId?:string};
+const API=(import.meta.env.VITE_API_BASE_URL||'https://du6aq4me7fp0q.cloudfront.net/api/v1').replace(/\/$/,''),KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
+const names:Record<string,string>={FEMALE:'Hembra',MALE:'Macho',LAMB_LACTATING:'Cordero lactante',LAMB_FATTENING:'Cordero en engorda',EWE_REPLACEMENT:'Reemplazo',ADULT:'Adulto',EMPTY:'Vacía',PREGNANT:'Gestante',LACTATING:'Lactante',STUD_RAM:'Semental',ACTIVE:'Activo',SOLD:'Vendido',DECEASED:'Fallecido',BIRTH:'Nacimiento',WEANING:'Destete',DAY_120:'120 días',DAY_150:'150 días',EVALUATION:'Evaluación',MN:'Monta natural',IA:'Inseminación artificial',TE:'Transferencia de embriones',SIMPLE:'Parto simple',DOBLE:'Parto doble',TRIPLE:'Parto triple'};
+const stages=['LAMB_LACTATING','LAMB_FATTENING','EWE_REPLACEMENT','ADULT'],repro=['EMPTY','PREGNANT','LACTATING','STUD_RAM'],states=['ACTIVE','SOLD','DECEASED'];
+const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
+const read=():Session|null=>{try{return JSON.parse(sessionStorage.getItem(KEY)||'null')}catch{return null}}, payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
+const ranches=(p:any):Ranch[]=>{const d=data(p);return [p?.ranches,p?.accessibleRanches,p?.accessible_ranches,p?.data?.ranches,p?.data?.accessibleRanches,p?.data?.accessible_ranches,p?.data?.content,p?.content,Array.isArray(p?.data)?p.data:undefined,d?.ranches,d?.accessibleRanches,d?.accessible_ranches,d?.user?.ranches].find(Array.isArray)||[]};
+const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
+const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
+const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
+const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
+const qs=(f:Record<string,string>)=>{const q=new URLSearchParams();Object.entries(f).forEach(([k,v])=>v&&q.set(k,v));return q.size?'?'+q.toString():''};
 
-type Ranch = { id?: string; ranchId?: string; name?: string; [key: string]: unknown };
-type Session = {
-  accessToken: string;
-  refreshToken?: string;
-  role: string;
-  username: string;
-  ranches: Ranch[];
-};
-type ApiPayload = Record<string, unknown> & { data?: ApiPayload };
-
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://du6aq4me7fp0q.cloudfront.net/api/v1').replace(/\/$/, '');
-const STORAGE_KEY = 'baapp.session';
-const AUDIT_ROLES = new Set(['ASSOCIATION_SUPERUSER', 'VET_TECHNICIAN']);
-
-function readSession(): Session | null {
-  try {
-    const saved = sessionStorage.getItem(STORAGE_KEY);
-    if (!saved) return null;
-    const value = JSON.parse(saved) as Session;
-    return typeof value.accessToken === 'string' ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function tokenFrom(payload: ApiPayload): string {
-  const data = payload.data || payload;
-  return String(data.accessToken || data.access_token || data.token || data.jwt || payload.accessToken || payload.access_token || payload.token || payload.jwt || '');
-}
-
-// fix(issue-3): also accept a bare-array response body (e.g. GET /ranches → [{...},...])
-// and an array nested under data, in addition to the existing named-key shapes.
-// Returns undefined only when no supported array shape is found.
-function ranchesFrom(payload: ApiPayload): Ranch[] | undefined {
-  if (Array.isArray(payload)) return payload as Ranch[];
-  const candidates = [
-    payload.ranches, payload.accessibleRanches, payload.accessible_ranches,
-    payload.data?.ranches, payload.data?.accessibleRanches, payload.data?.accessible_ranches,
-    payload.data?.content, payload.content,
-    Array.isArray(payload.data) ? payload.data : undefined,
-  ];
-  return candidates.find(Array.isArray) as Ranch[] | undefined;
-}
-
-function roleFrom(payload: ApiPayload, token: string): string {
-  const data = payload.data || payload;
-  const user = (data.user || {}) as Record<string, unknown>;
-  let role = String(user.role || data.role || '');
-  if (!role && token.split('.')[1]) {
-    try {
-      const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-      role = claims.role || claims.authorities?.[0] || '';
-    } catch { /* Role-based UI stays restricted when claims cannot be read. */ }
-  }
-  return role.toUpperCase().replace(/^ROLE_/, '');
-}
-
-function saveSession(session: Session) {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-}
-
-async function readPayload(response: Response): Promise<ApiPayload> {
-  try { return await response.json() as ApiPayload; }
-  catch { return {}; }
-}
-
-async function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
-  const session = readSession();
-  const send = (token?: string) => {
-    const headers = new Headers(init.headers);
-    headers.set('Accept', 'application/json');
-    if (init.body) headers.set('Content-Type', 'application/json');
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-    return fetch(`${API_BASE}${path}`, { ...init, headers });
-  };
-  let response = await send(session?.accessToken);
-  if (response.status !== 401) return response;
-  if (!session?.refreshToken) throw new Error('SESSION_EXPIRED');
-
-  const refreshed = await fetch(`${API_BASE}/auth/refresh`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
-  });
-  if (!refreshed.ok) throw new Error('SESSION_EXPIRED');
-  const payload = await readPayload(refreshed);
-  const accessToken = tokenFrom(payload);
-  if (!accessToken) throw new Error('SESSION_EXPIRED');
-  const updated = { ...session, accessToken };
-  saveSession(updated);
-  response = await send(accessToken);
-  if (response.status === 401) throw new Error('SESSION_EXPIRED');
-  return response;
-}
-
-function currentRoute() {
-  return window.location.hash.replace(/^#\/?/, '') || 'login';
-}
-
-export default function App() {
-  const [session, setSession] = useState<Session | null>(() => readSession());
-  const [route, setRoute] = useState(currentRoute);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [catalogError, setCatalogError] = useState('');
-
-  // fix(issue-1): session generation counter — incremented on logout so that
-  // in-flight login/catalog completions can detect they belong to a stale flow
-  // and discard their writes instead of restoring a session after logout.
-  const sessionGenRef = useRef(0);
-
-  useEffect(() => {
-    const updateRoute = () => setRoute(currentRoute());
-    window.addEventListener('hashchange', updateRoute);
-    return () => window.removeEventListener('hashchange', updateRoute);
-  }, []);
-
-  useEffect(() => {
-    const allowedAudit = session && AUDIT_ROLES.has(session.role);
-    if (!session && route !== 'login') window.location.hash = '/login';
-    else if (session && (route === 'login' || (route === 'auditoria-nacimientos' && !allowedAudit))) {
-      window.location.hash = '/inicio';
+async function api(path:string,s:Session,onRefresh?:(n:Session)=>void){
+  const activeRanch=s.activeRanchId||s.ranches[0]?.id||s.ranches[0]?.ranchId;
+  const send=(t:string)=>fetch(API+path,{headers:{Accept:'application/json',Authorization:'Bearer '+t,...(activeRanch?{'X-Active-Ranch-Id':activeRanch}:{})}});
+  let r=await send(s.accessToken);
+  if(r.status===401&&s.refreshToken){
+    const x=await fetch(API+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken:s.refreshToken})});
+    if(!x.ok)throw Error('SESSION_EXPIRED');
+    const p=await payload(x);
+    const t=token(p);
+    if(!t)throw Error('SESSION_EXPIRED');
+    const stored=read();
+    if(!stored||stored.username!==s.username||stored.accessToken!==s.accessToken){
+      throw Error('SESSION_EXPIRED');
     }
-  }, [route, session]);
+    const d=data(p);
+    const newRefresh=String(d.refreshToken||d.refresh_token||'')||s.refreshToken;
+    const n:Session={...stored,accessToken:t,refreshToken:newRefresh};
+    sessionStorage.setItem(KEY,JSON.stringify(n));
+    if(onRefresh)onRefresh(n);
+    r=await send(t);
+  }
+  if(r.status===401)throw Error('SESSION_EXPIRED');
+  return r;
+}
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setCatalogError(''); setBusy(true);
-    // Capture the generation at the start of this login attempt.
-    // fix(issue-1): any write below is guarded by checking this generation.
-    const gen = sessionGenRef.current;
-    try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
-      });
-      const payload = await readPayload(response);
-      if (response.status === 401) {
-        throw new Error('No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.');
+export default function App(){
+  const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
+  const [animalsState,setAnimalsState]=useState<{ranchId:string|null;rows:Animal[]}>({ranchId:null,rows:[]}),[animalState,setAnimalState]=useState<{ranchId:string|null;route:string;data:Animal|null}>({ranchId:null,route:'',data:null}),[loading,setLoading]=useState(false),[error,setError]=useState('');
+  const empty={folio_interno:'',siniiga_chip:'',registro_uno:'',sex:'',life_stage:'',reproductive_status:'',breed:'',status:''},[filters,setFilters]=useState(empty),[applied,setApplied]=useState(empty);
+  const activeRanchId=s?.activeRanchId||s?.ranches[0]?.id||s?.ranches[0]?.ranchId||'';
+
+  useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
+
+  useEffect(()=>{
+    setAnimalsState({ranchId:null,rows:[]});
+    setAnimalState({ranchId:null,route:'',data:null});
+  },[s?.username]);
+
+  useEffect(()=>{
+    if(!s){
+      if(url!=='login')location.hash='/login';
+      return;
+    }
+    if(url==='login'){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
+    if(url==='auditoria-nacimientos'&&!AUDIT.includes(s.role)){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
+    const isInventario=url==='inventario'||url.startsWith('inventario/');
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos';
+    if(!isKnown){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
+    if(isInventario&&!canInventory(s)){
+      location.hash='/sin-permisos';
+    }
+  },[s,url]);
+
+  useEffect(()=>{
+    if(!s||!canInventory(s)||['login','sin-permisos','auditoria-nacimientos'].includes(url))return;
+    let stop=false;setLoading(true);setError('');
+    const detail=url.startsWith('inventario/'),path=detail?'/animals/'+encodeURIComponent(url.slice(11)):'/animals'+qs(applied);
+    if(detail)setAnimalState(prev=>prev.ranchId===activeRanchId&&prev.route===url?prev:{ranchId:null,route:'',data:null});
+    else setAnimalsState(prev=>prev.ranchId===activeRanchId?prev:{ranchId:null,rows:[]});
+    api(path,s,setS).then(async r=>{
+      if(!r.ok)throw Error('No pudimos cargar la información del rebaño.');
+      const p=await payload(r);
+      if(stop)return;
+      if(detail)setAnimalState({ranchId:activeRanchId,route:url,data:data(p).animal||data(p)});
+      else setAnimalsState({ranchId:activeRanchId,rows:rows(p)});
+    }).catch(e=>{
+      if(stop)return;
+      if(e.message==='SESSION_EXPIRED'){
+        sessionStorage.removeItem(KEY);setS(null);setAnimalsState({ranchId:null,rows:[]});setAnimalState({ranchId:null,route:'',data:null});location.hash='/login';
+      }else setError(e.message||'Error al consultar el inventario.');
+    }).finally(()=>!stop&&setLoading(false));
+    return()=>{stop=true};
+  },[s,url,applied,activeRanchId]);
+
+  async function login(e:FormEvent){
+    e.preventDefault();setBusy(true);setLoginErr('');
+    try{
+      const r=await fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
+      if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
+      const d=data(p),t=token(p),u=d.user||{};
+      if(!t)throw Error('El servidor no devolvió el token de acceso.');
+      let role=String(u.role||d.role||'');
+      try{if(!role)role=String(JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role||'')}catch{}
+      role=role.toUpperCase().replace(/^ROLE_/,'');
+      const n:Session={accessToken:t,refreshToken:d.refreshToken||d.refresh_token,role,username:u.username||user.trim(),ranches:ranches(p),permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:u.ranchId||u.ranch_id||d.ranchId||d.ranch_id};
+      if(AUDIT.includes(role)&&!n.ranches.length){
+        try{const rr=await fetch(API+'/ranches',{headers:{Authorization:'Bearer '+t}});if(rr.ok)n.ranches=ranches(await payload(rr))}catch{}
       }
-      if (!response.ok) throw new Error('No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
-
-      const accessToken = tokenFrom(payload);
-      if (!accessToken) throw new Error('El servidor no devolvió el token de acceso.');
-      const data = payload.data || payload;
-      const newSession: Session = {
-        accessToken,
-        refreshToken: String(data.refreshToken || data.refresh_token || '') || undefined,
-        role: roleFrom(payload, accessToken),
-        username: String((data.user as Record<string, unknown> | undefined)?.username || username.trim()),
-        ranches: ranchesFrom(payload) || [],
-      };
-
-      // fix(issue-1): only commit if no logout happened since we started.
-      if (gen !== sessionGenRef.current) return;
-      saveSession(newSession);
-      setSession(newSession); setPassword(''); setShowPassword(false); window.location.hash = '/inicio';
-
-      if (!ranchesFrom(payload)) {
-        try {
-          const ranchResponse = await apiRequest('/ranches');
-          if (!ranchResponse.ok) throw new Error();
-          const ranches = ranchesFrom(await readPayload(ranchResponse)) || [];
-
-          // fix(issue-1): discard if logged out while the /ranches request was in flight.
-          if (gen !== sessionGenRef.current) return;
-
-          // fix(issue-2): merge ranches into the current saved session so we
-          // preserve any access token that apiRequest may have refreshed (L83-84),
-          // rather than overwriting storage with the stale login-local object.
-          const current = readSession();
-          if (current) {
-            const merged: Session = { ...current, ranches };
-            saveSession(merged);
-            setSession(merged);
-          }
-        } catch (cause) {
-          if (cause instanceof Error && cause.message === 'SESSION_EXPIRED') {
-            sessionStorage.removeItem(STORAGE_KEY); setSession(null); window.location.hash = '/login';
-            setError('Tu sesión venció. Vuelve a entrar para consultar tus ranchos.');
-          } else setCatalogError('Entraste, pero no pudimos cargar tus ranchos. Vuelve a intentarlo más tarde.');
-        }
-      }
-    } catch (cause) {
-      if (cause instanceof Error && cause.message === 'SESSION_EXPIRED') {
-        sessionStorage.removeItem(STORAGE_KEY);
-        setSession(null); window.location.hash = '/login';
-        setError('Tu sesión venció. Vuelve a entrar para consultar tus ranchos.');
-      } else {
-        setError(cause instanceof Error ? cause.message : 'No se pudo iniciar sesión. Inténtalo de nuevo.');
-      }
-    } finally { setBusy(false); }
+      if(n.ranches[0]&&!n.activeRanchId)n.activeRanchId=n.ranches[0].id||n.ranches[0].ranchId;
+      sessionStorage.setItem(KEY,JSON.stringify(n));
+      setS(n);setPass('');setShowPassword(false);
+      location.hash=canInventory(n)?'/inventario':'/sin-permisos';
+    }catch(e){
+      setLoginErr(e instanceof Error?e.message:'No se pudo iniciar sesión.');
+    }finally{setBusy(false)}
   }
 
-  function logout() {
-    // fix(issue-1): bump the generation so any pending login/catalog async
-    // completions belonging to the current session see a stale gen and bail out.
-    sessionGenRef.current += 1;
-    sessionStorage.removeItem(STORAGE_KEY); setSession(null); setPassword(''); setShowPassword(false);
-    window.location.hash = '/login';
+  function logout(){
+    sessionStorage.removeItem(KEY);
+    setS(null);
+    setPass('');
+    setShowPassword(false);
+    setAnimalsState({ranchId:null,rows:[]});
+    setAnimalState({ranchId:null,route:'',data:null});
+    setFilters(empty);
+    setApplied(empty);
+    location.hash='/login';
   }
 
-  if (!session || route === 'login') {
+  function selectRanch(id:string){
+    if(s){
+      const n={...s,activeRanchId:id};
+      setS(n);
+      sessionStorage.setItem(KEY,JSON.stringify(n));
+    }
+  }
+
+  if(!s||url==='login'){
     return (
       <div className="login-shell">
         <header className="login-topbar">
@@ -213,7 +151,7 @@ export default function App() {
           <span className="login-topbar-context">Gestión Ganadera Ovina</span>
         </header>
         <main className="login-page">
-          <form className="login-card" onSubmit={handleLogin}>
+          <form className="login-card" onSubmit={login}>
             <div className="login-card-header">
               <p className="eyebrow">Acceso al portal</p>
               <h1>Iniciar sesión</h1>
@@ -229,8 +167,8 @@ export default function App() {
                   name="username"
                   autoComplete="username"
                   placeholder="Ej. rancho.sauces"
-                  value={username}
-                  onChange={event => setUsername(event.target.value)}
+                  value={user}
+                  onChange={e=>setUser(e.target.value)}
                   required
                 />
               </div>
@@ -240,30 +178,30 @@ export default function App() {
                   <input
                     id="password"
                     name="password"
-                    type={showPassword ? 'text' : 'password'}
+                    type={showPassword?'text':'password'}
                     autoComplete="current-password"
                     placeholder="Ingresa tu contraseña"
-                    value={password}
-                    onChange={event => setPassword(event.target.value)}
+                    value={pass}
+                    onChange={e=>setPass(e.target.value)}
                     required
                   />
                   <button
                     type="button"
                     className="toggle-password"
-                    onClick={() => setShowPassword(value => !value)}
-                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    onClick={()=>setShowPassword(v=>!v)}
+                    aria-label={showPassword?'Ocultar contraseña':'Mostrar contraseña'}
                   >
-                    {showPassword ? 'Ocultar' : 'Mostrar'}
+                    {showPassword?'Ocultar':'Mostrar'}
                   </button>
                 </div>
               </div>
-              {error && (
+              {loginErr&&(
                 <p className="error" role="alert">
-                  {error}
+                  {loginErr}
                 </p>
               )}
-              <button className="primary" type="submit" disabled={busy}>
-                {busy ? 'Validando credenciales…' : 'Entrar al portal'}
+              <button className="primary wide" type="submit" disabled={busy}>
+                {busy?'Validando credenciales…':'Entrar al portal'}
               </button>
             </div>
             <div className="login-card-footer">
@@ -279,75 +217,43 @@ export default function App() {
     );
   }
 
-  const isAudit = route === 'auditoria-nacimientos';
-  return (
-    <div className="portal-shell">
-      <aside className="sidebar">
-        <a className="sidebar-brand" href="#/inicio">
-          <strong>BaaPP (OviApp)</strong>
-          <span>Portal de Rancho y Asociación</span>
-        </a>
-        <nav className="sidebar-nav" aria-label="Navegación principal">
-          <p className="sidebar-label">Módulos</p>
-          <a className={!isAudit ? 'nav-link active' : 'nav-link'} href="#/inicio">
-            Inicio
-          </a>
-          {AUDIT_ROLES.has(session.role) && (
-            <a className={isAudit ? 'nav-link active' : 'nav-link'} href="#/auditoria-nacimientos">
-              Bandeja de auditoría
-            </a>
-          )}
-        </nav>
-      </aside>
-      <div className="portal-main">
-        <header className="topbar">
-          <span className="topbar-title">
-            {isAudit ? 'Bandeja de auditoría de nacimientos' : 'Panel principal'}
-          </span>
-          <div className="account">
-            <span>{session.username}</span>
-            <span className="role-badge">{session.role || 'USUARIO'}</span>
-            <button className="secondary-button" onClick={logout}>
-              Cerrar sesión
-            </button>
-          </div>
-        </header>
-        <main className="content">
-          <p className="eyebrow">{isAudit ? 'Acceso por rol' : 'Portal BaaPP'}</p>
-          <h1>
-            {isAudit
-              ? 'Bandeja de auditoría de nacimientos'
-              : `Bienvenido${session.username ? `, ${session.username}` : ''}`}
-          </h1>
-          {isAudit ? (
-            <p className="intro">
-              Tu rol tiene acceso a esta sección. La consulta de auditorías se incorpora en su requisito funcional correspondiente.
-            </p>
-          ) : (
-            <>
-              <p className="intro">
-                Sesión iniciada correctamente. Los ranchos autorizados para tu cuenta quedaron guardados para esta visita.
-              </p>
-              {catalogError && (
-                <p className="error" role="status">
-                  {catalogError}
-                </p>
-              )}
-              <div className="summary-card">
-                <span className="summary-number">{session.ranches.length}</span>
-                <div>
-                  <strong>Ranchos disponibles</strong>
-                  <span>
-                    {session.ranches.length === 1
-                      ? 'rancho autorizado para tu cuenta'
-                      : 'ranchos autorizados para tu cuenta'}
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
-        </main>
-      </div>
-    </div>
-  );
+  const show=canInventory(s),multi=AUDIT.includes(s.role),detail=url.startsWith('inventario/');
+  const animals=animalsState.ranchId===activeRanchId?animalsState.rows:[];
+  const animal=animalState.ranchId===activeRanchId&&animalState.route===url?animalState.data:null;
+
+  return <div className="portal"><header><a className="brand-mark">BAAP <span>PORTAL DE RANCHO</span></a><div className="head-right">{multi&&s.ranches.length>0&&<label className="ranch">RANCHO ACTIVO<select value={activeRanchId} onChange={e=>selectRanch(e.target.value)}>{s.ranches.map((r,i)=><option key={r.id||r.ranchId||i} value={r.id||r.ranchId}>{r.name||'Rancho '+(i+1)}</option>)}</select></label>}<span>{s.username}</span><small className="role">{s.role}</small><button className="link-button" onClick={logout}>Salir</button></div></header><div className="layout"><aside><small>MENÚ</small>{show&&<a className={!detail?'selected':''} href="#/inventario">▦ &nbsp;Inventario</a>}{AUDIT.includes(s.role)&&<a className={url==='auditoria-nacimientos'?'selected':''} href="#/auditoria-nacimientos">◷ &nbsp;Bandeja de auditoría</a>}</aside><main>
+  {!show||url==='sin-permisos'?<section className="empty"><h1>Sin módulos habilitados</h1><p>Tu cuenta no tiene permisos para consultar módulos del portal.</p></section>:url==='auditoria-nacimientos'?<><p className="eyebrow">ACCESO POR ROL</p><h1>Bandeja de auditoría</h1><p className="muted">La consulta se habilitará en el módulo correspondiente.</p></>:detail?<><button className="back" onClick={()=>location.hash='/inventario'}>← Volver al inventario</button>{loading&&!animal?<p>Cargando ficha…</p>:error?<p className="error">{error}</p>:animal&&<Certificate a={animal}/>}</>:<>
+  <div className="title-row"><div><p className="eyebrow">REBAÑO · REGISTRO INDIVIDUAL</p><h1>Inventario del rebaño</h1><p className="muted">Consulta, filtra y abre la ficha certificada de cada ejemplar.</p></div><div className="count"><b>{animals.length}</b>ejemplares</div></div>
+  <form className="filters" onSubmit={e=>{e.preventDefault();setApplied({...filters})}}><div className="filter-title"><b>⌕ &nbsp;Buscar y filtrar</b><button type="button" className="link-button" onClick={()=>{setFilters(empty);setApplied(empty)}}>Limpiar filtros</button></div><div className="searches">{[['folio_interno','Folio interno','Ej. 79'],['siniiga_chip','Chip SINIIGA','484.•••'],['registro_uno','Registro UNO','Ej. 268309MM-RP']].map(([k,n,p])=><label key={k}>{n}<input placeholder={p} value={filters[k as keyof typeof empty]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></label>)}</div><div className="facets"><label>Sexo<select value={filters.sex} onChange={e=>setFilters({...filters,sex:e.target.value})}><option value="">Todos</option><option value="FEMALE">Hembra</option><option value="MALE">Macho</option></select></label><label>Etapa de vida<select value={filters.life_stage} onChange={e=>setFilters({...filters,life_stage:e.target.value})}><option value="">Todas</option>{stages.map(x=><option key={x} value={x}>{label(x)}</option>)}</select></label><label>Estado reproductivo<select value={filters.reproductive_status} onChange={e=>setFilters({...filters,reproductive_status:e.target.value})}><option value="">Todos</option>{repro.map(x=><option key={x} value={x}>{label(x)}</option>)}</select></label><label>Raza<input placeholder="Todas las razas" value={filters.breed} onChange={e=>setFilters({...filters,breed:e.target.value})}/></label><label>Estado<select value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos</option>{states.map(x=><option key={x} value={x}>{label(x)}</option>)}</select></label><button className="primary">Aplicar filtros →</button></div></form>
+  <section className="table"><div className="table-head"><b>Ejemplares</b><span>{loading?'Actualizando…':animals.length+' registros'}</span><small>● Datos del rancho</small></div>{error&&<p className="error">{error}</p>}{!loading&&!error&&!animals.length?<div className="empty"><h3>No encontramos ejemplares</h3><p>Prueba con otros datos o limpia los filtros.</p></div>:<div className="scroll"><table><thead><tr><th>Ejemplar</th><th>Identificación</th><th>Sexo / raza</th><th>Etapa y reproducción</th><th>Estado</th><th></th></tr></thead><tbody>{animals.map(a=><tr key={a.id}><td><button className="animal-link" onClick={()=>{setAnimalState({ranchId:null,route:'',data:null});location.hash='/inventario/'+a.id}}>{a.folio_interno||'Sin folio'}<small>Nació {date(a.birth_date||a.fecha_nacimiento)}</small></button></td><td>{a.siniiga_chip||a.chip_siniiga||'—'}<small>UNO · {a.registro_uno||'—'}</small></td><td><span className={'sex '+(a.sex==='FEMALE'?'female':'male')}>{a.sex==='FEMALE'?'♀ Hembra':'♂ Macho'}</span><small>{a.breed||a.raza||'Raza sin especificar'}</small></td><td>{label(a.life_stage)}<small>{label(a.reproductive_status)}</small></td><td><span className={'state '+String(a.status||'').toLowerCase()}>{label(a.status)}</span></td><td><button className="open" aria-label="Abrir ficha" onClick={()=>location.hash='/inventario/'+a.id}>↗</button></td></tr>)}</tbody></table></div>}</section></>}
+  </main></div></div>
+}
+
+function Certificate({a}:{a:Animal}){
+  const female=a.sex==='FEMALE',ms=list(a),photo=a.presigned_photo_url||a.photo_presigned_url||a.photo_url||a.photoUrl;
+  const gRaw=ms
+    .map(m=>({w:kg(m),t:new Date(m.measured_at||m.fecha||'').getTime()}))
+    .filter(x=>Number.isFinite(x.w)&&Number.isFinite(x.t))
+    .sort((x,y)=>x.t-y.t);
+  const g=gRaw.slice(1).reduce<number[]>((acc,m,i)=>{
+    const d=(m.t-gRaw[i].t)/86400000;
+    if(Number.isFinite(d)&&d>0)acc.push((m.w-gRaw[i].w)/d);
+    return acc;
+  },[]);
+  const milestones=['BIRTH','WEANING','DAY_120','DAY_150','EVALUATION'];
+  const sire=a.sire_name||a.padre_name||a.padre||a.sire;
+  const sireUno=a.sire_uno||a.folio_uno_padre||a.sire_folio||a.padre_folio;
+  const dam=a.dam_name||a.madre_name||a.madre||a.dam;
+  const damUno=a.dam_uno||a.folio_uno_madre||a.dam_folio||a.madre_folio;
+  const conception=a.conception_method||a.metodo_concepcion;
+  const birthType=a.birth_type||a.tipo_parto;
+  const hasGenealogy=Boolean(sire||sireUno||dam||damUno||conception||birthType);
+
+  const getX=(i:number)=>g.length===1?300:(i*600)/Math.max(1,g.length-1);
+  const getY=(v:number)=>120-((v-Math.min(...g,0))/(Math.max(...g,0.01)-Math.min(...g,0)||1))*100;
+
+  return <article className={'certificate '+(female?'pink':'blue')}><div className="cert-head"><div><small>BAAP · REGISTRO DE REBAÑO</small><h1>Ficha individual</h1><p>Certificado de identificación y seguimiento</p></div><div className="seal"><b>{female?'♀ HEMBRA':'♂ MACHO'}</b><small>{female?'HOJA ROSA':'HOJA AZUL'}</small></div></div>{a.status==='DECEASED'||a.status==='SOLD'?<div className="life-alert"><b>{label(a.status)} · Fecha {date(a.mortality_date||a.sale_date)}</b><span>Causa: {a.mortality_cause||a.sale_cause||a.sale_reason||'No especificada'} · Etapa: {label(a.status==='DECEASED'?a.life_stage_at_death:a.life_stage)}</span></div>:null}
+  <div className="cert-body"><div className="photo">{photo?<img src={photo} alt={'Fotografía de '+(a.folio_interno||'ejemplar')}/>:<span>◉<small>Fotografía de S3</small></span>}</div><div><small className="section-label">IDENTIFICACIÓN OFICIAL</small><div className="id-grid">{[['Folio Registro UNO',a.registro_uno],['Número SINIIGA',a.siniiga_chip||a.chip_siniiga],['Folio interno',a.folio_interno],['ADN',a.adn],['Fecha de nacimiento',date(a.birth_date||a.fecha_nacimiento)],['Edad actual',age(a.birth_date||a.fecha_nacimiento)]].map(([k,v])=><div key={k}><small>{k}</small><b>{v||'—'}</b></div>)}</div><div className="owners"><div><small>♧ Criador · rancho donde nació</small><b>{a.criador_name||'Sin dato'}</b></div><div><small>⌂ Propietario actual · dueño vigente</small><b>{a.owner_name||a.ranch_name||'Sin dato'}</b></div></div><div style={{marginTop:'14px'}}><small className="section-label">GENEALOGÍA</small>{hasGenealogy?<div className="id-grid"><div><small>Padre (Sire)</small><b>{sire||'—'}{sireUno?` (UNO: ${sireUno})`:''}</b></div><div><small>Madre (Dam)</small><b>{dam||'—'}{damUno?` (UNO: ${damUno})`:''}</b></div>{conception&&<div><small>Concepción</small><b>{label(conception)}</b></div>}{birthType&&<div><small>Tipo de parto</small><b>{label(birthType)}</b></div>}</div>:<p className="muted" style={{margin:'6px 0 0',fontSize:'10px'}}>Sin datos genealógicos registrados</p>}</div></div></div><div className="badges"><span>● {label(a.sex)}</span><span>◇ {a.breed||a.raza||'Raza sin especificar'}</span><span>◷ {label(a.life_stage)}</span><span>♡ {label(a.reproductive_status)}</span></div>
+  <section className="cert-section"><div className="section-title"><div><h2>⚖ Historial de pesajes</h2><small>Control de crecimiento por etapa</small></div><small>PESO · KG</small></div><div className="weights">{milestones.map(k=>{const m=ms.find(x=>hit(x)===k);return <div key={k}><small>{label(k)}</small><b>{m?kg(m).toFixed(1)+' kg':'—'}</b><small>{m?date(m.measured_at||m.fecha):'Sin registro'}</small></div>})}</div>{!female&&<p className="scrotal">♂ Circunferencia escrotal: <b>{ms.find(m=>m.scrotal_circumference_cm||m.circunferencia_escrotal_cm)?.scrotal_circumference_cm||ms.find(m=>m.circunferencia_escrotal_cm)?.circunferencia_escrotal_cm||'—'} cm</b></p>}</section>
+  <section className="cert-section"><div className="section-title"><div><h2>↗ Ganancia diaria de peso</h2><small>GDP · kg por día entre pesajes</small></div></div>{g.length?<div className="chart"><svg viewBox="0 0 600 140" role="img" aria-label="Gráfica de ganancia diaria de peso"><path d="M0 20H600M0 70H600M0 120H600"/>{g.length>1&&<polyline points={g.map((v,i)=>`${getX(i)},${getY(v)}`).join(' ')}/>}{g.map((v,i)=><circle key={i} cx={getX(i)} cy={getY(v)} r="5" fill="var(--tone)"/>)}</svg><div>{g.map((v,i)=><small key={i}>{v.toFixed(3)} kg/día</small>)}</div></div>:<p className="muted">Se requieren dos pesajes con fecha para calcular la GDP.</p>}<div className="measurements"><div><b>Hito</b><b>Fecha</b><b>Peso</b><b>Circunferencia</b></div>{ms.map((m,i)=><div key={i}><span>{label(hit(m))}</span><span>{date(m.measured_at||m.fecha)}</span><span>{Number.isFinite(kg(m))?kg(m)+' kg':'—'}</span><span>{m.scrotal_circumference_cm||m.circunferencia_escrotal_cm?String(m.scrotal_circumference_cm||m.circunferencia_escrotal_cm)+' cm':'—'}</span></div>)}</div></section><footer>BAAP · Trazabilidad ovina <span>Ficha del rancho activo</span></footer></article>
 }
