@@ -281,9 +281,9 @@ export default function App(){
             </section>
           ):detail?(
             <>
-              <button type="button" className="back-button" onClick={()=>location.hash='/inventario'}>
+              <a className="back-button" href="#/inventario">
                 ← Volver al inventario
-              </button>
+              </a>
               {loading&&!animal?(
                 <p className="muted">Cargando reseña del ejemplar…</p>
               ):error?(
@@ -384,18 +384,18 @@ export default function App(){
                         {animals.map(a=>(
                           <tr key={a.id}>
                             <td>
-                              <button type="button" className="animal-link" onClick={()=>{setAnimalState({ranchId:null,route:'',data:null});location.hash='/inventario/'+a.id}}>
+                              <a className="animal-link" href={'#/inventario/'+encodeURIComponent(a.id)} onClick={()=>setAnimalState({ranchId:null,route:'',data:null})}>
                                 {a.folio_interno||'Sin arete'}
                                 <small>Nació {date(a.birth_date||a.fecha_nacimiento)}</small>
-                              </button>
+                              </a>
                             </td>
                             <td>
                               {a.siniiga_chip||a.chip_siniiga||'—'}
                               <small>UNO · {a.registro_uno||'—'}</small>
                             </td>
                             <td>
-                              <span className={'sex '+(a.sex==='FEMALE'?'female':'male')}>
-                                {a.sex==='FEMALE'?'♀ Hembra':'♂ Macho'}
+                              <span className={'sex'+(a.sex==='FEMALE'?' female':a.sex==='MALE'?' male':'')}>
+                                {a.sex==='FEMALE'?'♀ Hembra':a.sex==='MALE'?'♂ Macho':'Sin dato'}
                               </span>
                               <small>{a.breed||a.raza||'Raza sin especificar'}</small>
                             </td>
@@ -409,9 +409,9 @@ export default function App(){
                               </span>
                             </td>
                             <td>
-                              <button type="button" className="open" aria-label="Abrir reseña" onClick={()=>location.hash='/inventario/'+a.id}>
+                              <a className="open" aria-label="Abrir reseña" href={'#/inventario/'+encodeURIComponent(a.id)}>
                                 Ver →
-                              </button>
+                              </a>
                             </td>
                           </tr>
                         ))}

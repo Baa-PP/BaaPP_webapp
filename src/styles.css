@@ -491,6 +491,7 @@ a {
   color: var(--accent-secondary);
   font-size: 13px;
   font-weight: 600;
+  text-decoration: none;
 }
 
 .back-button:hover {
@@ -679,6 +680,7 @@ td small,
 }
 
 .animal-link {
+  display: inline-block;
   padding: 0;
   border: 0;
   background: none;
@@ -686,6 +688,7 @@ td small,
   text-align: left;
   font-weight: 700;
   font-size: 13px;
+  text-decoration: none;
 }
 
 .animal-link:hover {
@@ -733,6 +736,7 @@ td small,
 }
 
 .open {
+  display: inline-block;
   padding: 5px 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
@@ -740,6 +744,7 @@ td small,
   color: var(--accent-secondary);
   font-size: 12px;
   font-weight: 600;
+  text-decoration: none;
 }
 
 .open:hover {
@@ -1005,6 +1010,7 @@ td small,
 .weights b {
   font-size: 16px;
   color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
 .scrotal {
