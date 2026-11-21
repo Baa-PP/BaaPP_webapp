@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-interface Ranch {
+export interface Ranch {
   id: string;
   name: string;
   owner_name?: string;

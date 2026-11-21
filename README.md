@@ -86,7 +86,7 @@ npm install
 npm run dev
 ```
 * Abre **`http://localhost:3000`** en tu navegador.
-* Por defecto, [`src/api/client.ts`](src/api/client.ts) apunta a `http://localhost:5000/api/v1`. Si necesitas cambiar la URL del backend, crea un archivo `.env` en la raíz:
+* Por defecto, [`src/api/config.ts`](src/api/config.ts) resuelve la URL base compartida (usada tanto en el login de `App.tsx` como en [`src/api/client.ts`](src/api/client.ts)) a `http://localhost:5000/api/v1` cuando `VITE_API_BASE_URL` no está definida o está vacía (eliminando cualquier diagonal final). Si necesitas apuntar a otro backend (por ejemplo CloudFront en producción), crea un archivo `.env` en la raíz:
   ```env
   VITE_API_BASE_URL=http://localhost:5000/api/v1
   ```

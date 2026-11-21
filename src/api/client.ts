@@ -1,13 +1,11 @@
 import { useRanchContextStore } from "../store/useRanchContextStore";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api/v1";
+import { API_BASE_URL } from "./config";
 
 /**
  * WEB-003 — apiFetch: cliente HTTP centralizado.
  *
  * Inyecta en cada petición:
- *   - Authorization: Bearer <jwt>  (leído de localStorage)
+ *   - Authorization: Bearer <jwt>  (leído de sessionStorage, acotado a la pestaña)
  *   - X-Active-Ranch-Id: <id>      (leído de useRanchContextStore)
  *
  * Los errores HTTP se normalizan a un único tipo { status, message }
@@ -19,7 +17,7 @@ const API_BASE_URL =
  *   1. Si hay un token más nuevo ya almacenado → reintenta con él sin refrescar.
  *   2. Si hay refreshToken → intenta POST /api/v1/auth/refresh una sola vez,
  *      encolando cualquier petición concurrente para reintentarlas después.
- *   3. Si el refresh tiene éxito → actualiza jwt_token y reintenta la cola.
+ *   3. Si el refresh tiene éxito → actualiza jwt_token en sessionStorage (y baapp.session) y reintenta la cola.
  *   4. Si el refresh falla o no hay refreshToken → limpia la sesión y
  *      redirige a /login (con guardia de generación de sesión).
  */
@@ -59,6 +57,10 @@ export function getSessionGeneration(): number {
 
 export function clearSession(): void {
   sessionGeneration += 1;
+  sessionStorage.removeItem("jwt_token");
+  sessionStorage.removeItem("jwt_refresh_token");
+  sessionStorage.removeItem("baapp.session");
+  sessionStorage.removeItem("baapp_user");
   localStorage.removeItem("jwt_token");
   localStorage.removeItem("jwt_refresh_token");
   localStorage.removeItem("baapp_user");
@@ -89,10 +91,14 @@ function flushQueue(error: unknown, newToken?: string): void {
 
 /** Intenta refrescar el JWT. Devuelve el nuevo token o lanza un error. */
 async function refreshSession(): Promise<string> {
-  const refreshToken = localStorage.getItem("jwt_refresh_token");
+  const refreshToken = sessionStorage.getItem("jwt_refresh_token");
   if (!refreshToken) {
     throw createApiError(401, "No hay refresh token disponible.");
   }
+
+  // Capturar la generación antes del refresh para descartar respuestas obsoletas
+  // (p. ej. logout o nueva sesión mientras la petición estaba en vuelo).
+  const startGeneration = sessionGeneration;
 
   const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
     method: "POST",
@@ -105,15 +111,39 @@ async function refreshSession(): Promise<string> {
   }
 
   const data = await res.json();
+  const payload = data?.data ?? data;
   const newToken: string =
+    payload.token || payload.accessToken || payload.access_token || payload.jwt ||
     data.token || data.accessToken || data.access_token || data.jwt;
   if (!newToken) {
     throw createApiError(401, "El servidor no devolvió un token de acceso renovado.");
   }
 
-  localStorage.setItem("jwt_token", newToken);
-  if (typeof data.refreshToken === "string" && data.refreshToken.length > 0) {
-    localStorage.setItem("jwt_refresh_token", data.refreshToken);
+  const nextRefresh: string | undefined =
+    (typeof payload.refreshToken === "string" && payload.refreshToken.length > 0 && payload.refreshToken) ||
+    (typeof payload.refresh_token === "string" && payload.refresh_token.length > 0 && payload.refresh_token) ||
+    (typeof data.refreshToken === "string" && data.refreshToken.length > 0 && data.refreshToken) ||
+    (typeof data.refresh_token === "string" && data.refresh_token.length > 0 && data.refresh_token) ||
+    undefined;
+
+  if (sessionGeneration !== startGeneration) {
+    throw createApiError(401, "Sesión cancelada");
+  }
+
+  sessionStorage.setItem("jwt_token", newToken);
+  if (nextRefresh) {
+    sessionStorage.setItem("jwt_refresh_token", nextRefresh);
+  }
+  try {
+    const raw = sessionStorage.getItem("baapp.session");
+    if (raw) {
+      const stored = JSON.parse(raw) as Record<string, unknown>;
+      stored.accessToken = newToken;
+      if (nextRefresh) stored.refreshToken = nextRefresh;
+      sessionStorage.setItem("baapp.session", JSON.stringify(stored));
+    }
+  } catch {
+    // ignore malformed session payload
   }
   return newToken;
 }
@@ -125,7 +155,7 @@ export async function apiFetch<T>(
   init: RequestInit = {}
 ): Promise<T> {
   const activeRanchId = useRanchContextStore.getState().activeRanchId;
-  const token = localStorage.getItem("jwt_token");
+  const token = sessionStorage.getItem("jwt_token");
 
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
@@ -138,7 +168,7 @@ export async function apiFetch<T>(
   if (response.status === 401) {
     // 1. Comparar el token usado en la petición fallida con el token actualmente almacenado.
     // Si ya existe un token más nuevo (refrescado por otra petición concurrente), reintentar sin refrescar otra vez.
-    const currentToken = localStorage.getItem("jwt_token");
+    const currentToken = sessionStorage.getItem("jwt_token");
     if (currentToken && currentToken !== token) {
       headers.set("Authorization", `Bearer ${currentToken}`);
       const retryRes = await fetch(`${API_BASE_URL}${path}`, {
