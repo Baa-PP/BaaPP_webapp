@@ -1,7 +1,5 @@
 import { useRanchContextStore } from "../store/useRanchContextStore";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api/v1";
+import { API_BASE_URL } from "./config";
 
 /**
  * WEB-003 — apiFetch: cliente HTTP centralizado.
@@ -98,6 +96,10 @@ async function refreshSession(): Promise<string> {
     throw createApiError(401, "No hay refresh token disponible.");
   }
 
+  // Capturar la generación antes del refresh para descartar respuestas obsoletas
+  // (p. ej. logout o nueva sesión mientras la petición estaba en vuelo).
+  const startGeneration = sessionGeneration;
+
   const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -123,6 +125,10 @@ async function refreshSession(): Promise<string> {
     (typeof data.refreshToken === "string" && data.refreshToken.length > 0 && data.refreshToken) ||
     (typeof data.refresh_token === "string" && data.refresh_token.length > 0 && data.refresh_token) ||
     undefined;
+
+  if (sessionGeneration !== startGeneration) {
+    throw createApiError(401, "Sesión cancelada");
+  }
 
   sessionStorage.setItem("jwt_token", newToken);
   if (nextRefresh) {
