@@ -45,10 +45,28 @@ function normalizeRanches(p:any):Ranch[]{
     .filter((r:Ranch|null):r is Ranch=>r!==null);
 }
 
-function syncTokensToLocalStorage(session:Session){
-  localStorage.setItem('jwt_token',session.accessToken);
-  if(session.refreshToken)localStorage.setItem('jwt_refresh_token',session.refreshToken);
-  else localStorage.removeItem('jwt_refresh_token');
+function syncTokensToSessionStorage(session:Session,force=false){
+  if(force||!sessionStorage.getItem('jwt_token')){
+    sessionStorage.setItem('jwt_token',session.accessToken);
+  }
+  if(force){
+    if(session.refreshToken)sessionStorage.setItem('jwt_refresh_token',session.refreshToken);
+    else sessionStorage.removeItem('jwt_refresh_token');
+  }else if(session.refreshToken&&!sessionStorage.getItem('jwt_refresh_token')){
+    sessionStorage.setItem('jwt_refresh_token',session.refreshToken);
+  }
+}
+
+function mergeLatestTokens(base:Session,ranchId:string|undefined):Session{
+  const stored=read();
+  const latestAccess=sessionStorage.getItem('jwt_token')||stored?.accessToken||base.accessToken;
+  const latestRefresh=sessionStorage.getItem('jwt_refresh_token')||stored?.refreshToken||base.refreshToken;
+  return {
+    ...(stored&&stored.username===base.username?stored:base),
+    accessToken:latestAccess,
+    refreshToken:latestRefresh,
+    activeRanchId:ranchId,
+  };
 }
 
 const queryClient=new QueryClient({
@@ -76,14 +94,14 @@ function PortalApp(){
 
   useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
 
-  // Sync persisted session into localStorage (for apiFetch) and useRanchContextStore
+  // Sync persisted session into sessionStorage (for apiFetch) and useRanchContextStore
   useEffect(()=>{
     if(!s){
       setAvailableRanches([]);
       setActiveRanchId(null);
       return;
     }
-    syncTokensToLocalStorage(s);
+    syncTokensToSessionStorage(s,false);
     if(s.ranches.length>0){
       setAvailableRanches(s.ranches);
     }
@@ -92,10 +110,10 @@ function PortalApp(){
     }
   },[s?.username]);
 
-  // Keep sessionStorage activeRanchId synchronized with store changes
+  // Keep sessionStorage activeRanchId synchronized with store changes without overwriting refreshed tokens
   useEffect(()=>{
     if(!s||!activeRanchId||s.activeRanchId===activeRanchId)return;
-    const updated:Session={...s,activeRanchId};
+    const updated=mergeLatestTokens(s,activeRanchId);
     sessionStorage.setItem(KEY,JSON.stringify(updated));
   },[activeRanchId,s]);
 
@@ -167,7 +185,7 @@ function PortalApp(){
   // If apiFetch cleared session after an unrecoverable 401, synchronize React state
   useEffect(()=>{
     const err=(ranchesQuery.error||animalsQuery.error||animalQuery.error) as ApiError|null;
-    if(err&&err.status===401&&!localStorage.getItem('jwt_token')){
+    if(err&&err.status===401&&!sessionStorage.getItem('jwt_token')){
       sessionStorage.removeItem(KEY);
       setS(null);
       qc.clear();
@@ -179,7 +197,7 @@ function PortalApp(){
     const nextId=ranchId||null;
     setActiveRanchId(nextId);
     if(s){
-      const updated:Session={...s,activeRanchId:nextId??undefined};
+      const updated=mergeLatestTokens(s,nextId??undefined);
       setS(updated);
       sessionStorage.setItem(KEY,JSON.stringify(updated));
     }
@@ -200,7 +218,7 @@ function PortalApp(){
       const initialRanches=normalizeRanches(p);
       const initialRanchId=String(u.ranchId||u.ranch_id||d.ranchId||d.ranch_id||initialRanches[0]?.id||'').trim()||undefined;
       const n:Session={accessToken:t,refreshToken:d.refreshToken||d.refresh_token,role,username:u.username||user.trim(),ranches:initialRanches,permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:initialRanchId};
-      syncTokensToLocalStorage(n);
+      syncTokensToSessionStorage(n,true);
       sessionStorage.setItem(KEY,JSON.stringify(n));
       if(initialRanches.length>0)setAvailableRanches(initialRanches);
       if(initialRanchId)setActiveRanchId(initialRanchId);
