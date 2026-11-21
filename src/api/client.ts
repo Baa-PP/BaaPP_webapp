@@ -241,6 +241,8 @@ export async function apiFetch<T>(
     headers.set("X-Active-Ranch-Id", activeRanchId);
   }
 
+  const requestGen = sessionGeneration;
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...fetchInit,
     headers,
@@ -248,7 +250,10 @@ export async function apiFetch<T>(
 
   // --- WEB-002: interceptor 401 ---
   if (response.status === 401) {
-    const currentGen = sessionGeneration;
+    // Si la sesión cambió mientras la petición inicial estaba en vuelo, cancelar sin refrescar ni expirar la nueva sesión.
+    if (sessionGeneration !== requestGen) {
+      throw createApiError(401, "Sesión cancelada");
+    }
 
     // 1. Si ya existe un token más nuevo (refrescado por otra petición concurrente), reintentar sin refrescar otra vez.
     const currentToken = sessionStorage.getItem("jwt_token");
@@ -259,7 +264,7 @@ export async function apiFetch<T>(
         headers,
       });
       if (retryRes.status === 401) {
-        expireSessionAndRedirect(currentGen);
+        expireSessionAndRedirect(requestGen);
       }
       return parseResponse<T>(retryRes);
     }
@@ -276,7 +281,7 @@ export async function apiFetch<T>(
                 headers,
               });
               if (res.status === 401) {
-                expireSessionAndRedirect(currentGen);
+                expireSessionAndRedirect(requestGen);
               }
               resolve(await parseResponse<T>(res));
             } catch (err) {
@@ -288,9 +293,9 @@ export async function apiFetch<T>(
       });
     }
 
-    // 3. Primer 401: capturar generación de sesión e iniciar un único POST /api/v1/auth/refresh
+    // 3. Primer 401: iniciar un único POST /api/v1/auth/refresh bajo la misma generación de sesión
     isRefreshing = true;
-    const initialSessionGen = sessionGeneration;
+    const initialSessionGen = requestGen;
     let newToken: string;
     try {
       newToken = await refreshSession();

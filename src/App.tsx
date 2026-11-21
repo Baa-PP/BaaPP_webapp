@@ -10,7 +10,7 @@ const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
 const names:Record<string,string>={FEMALE:'Hembra',MALE:'Macho',LAMB_LACTATING:'Cordero lactante',LAMB_FATTENING:'Cordero en engorda',EWE_REPLACEMENT:'Reemplazo',ADULT:'Adulto',EMPTY:'Vacía',PREGNANT:'Gestante',LACTATING:'Lactante',STUD_RAM:'Semental',ACTIVE:'Activo',SOLD:'Vendido',DECEASED:'Fallecido',BIRTH:'Nacimiento',WEANING:'Destete',DAY_120:'120 días',DAY_150:'150 días',EVALUATION:'Evaluación',MN:'Monta natural',IA:'Inseminación artificial',TE:'Transferencia de embriones',SIMPLE:'Parto simple',DOBLE:'Parto doble',TRIPLE:'Parto triple'};
 const stages=['LAMB_LACTATING','LAMB_FATTENING','EWE_REPLACEMENT','ADULT'],repro=['EMPTY','PREGNANT','LACTATING','STUD_RAM'],states=['ACTIVE','SOLD','DECEASED'];
 const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
-const read=():Session|null=>{try{return JSON.parse(sessionStorage.getItem(KEY)||'null')}catch{return null}}, payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
+const payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
 const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
@@ -42,6 +42,18 @@ function normalizeRanches(p:any):Ranch[]{
       } as Ranch;
     })
     .filter((r:Ranch|null):r is Ranch=>r!==null);
+}
+
+function read():Session|null{
+  try{
+    const parsed=JSON.parse(sessionStorage.getItem(KEY)||'null');
+    if(!parsed||typeof parsed.accessToken!=='string')return null;
+    const normalizedRanches=normalizeRanches(parsed.ranches??parsed);
+    const activeRanchId=String(parsed.activeRanchId||normalizedRanches[0]?.id||'').trim()||undefined;
+    return {...parsed,ranches:normalizedRanches,activeRanchId};
+  }catch{
+    return null;
+  }
 }
 
 function syncTokensToSessionStorage(session:Session,force=false){
