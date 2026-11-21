@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch, clearSession, type ApiError } from './api/client';
+import { apiFetch, clearSession, onSessionCleared } from './api/client';
 import { API_BASE_URL } from './api/config';
 import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
 
@@ -186,18 +186,17 @@ function PortalApp(){
     enabled:Boolean(isInventoryRoute&&detail&&detailId&&(!multi||activeRanchId)),
   });
 
-  // If apiFetch cleared session after an unrecoverable 401 on any query, synchronize React state
+  // Synchronize React session state whenever clearSession() runs (e.g. failed token refresh on any request)
   useEffect(()=>{
-    const hasUnauthorized=[ranchesQuery.error,animalsQuery.error,animalQuery.error].some(
-      e=>Boolean(e&&(e as ApiError).status===401)
-    );
-    if(hasUnauthorized&&!sessionStorage.getItem('jwt_token')){
-      sessionStorage.removeItem(KEY);
-      setS(null);
+    return onSessionCleared(()=>{
+      setAvailableRanches([]);
       qc.clear();
-      location.hash='/login';
-    }
-  },[ranchesQuery.error,animalsQuery.error,animalQuery.error,qc]);
+      setS(null);
+      setPass('');
+      setShowPassword(false);
+      if(location.hash!=='#/login')location.hash='/login';
+    });
+  },[qc,setAvailableRanches]);
 
   function handleRanchChange(ranchId:string){
     const nextId=ranchId||null;

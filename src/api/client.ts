@@ -55,6 +55,16 @@ export function getSessionGeneration(): number {
   return sessionGeneration;
 }
 
+type SessionClearedListener = () => void;
+const sessionClearedListeners = new Set<SessionClearedListener>();
+
+export function onSessionCleared(listener: SessionClearedListener): () => void {
+  sessionClearedListeners.add(listener);
+  return () => {
+    sessionClearedListeners.delete(listener);
+  };
+}
+
 export function clearSession(): void {
   sessionGeneration += 1;
   sessionStorage.removeItem("jwt_token");
@@ -65,6 +75,7 @@ export function clearSession(): void {
   localStorage.removeItem("jwt_refresh_token");
   localStorage.removeItem("baapp_user");
   useRanchContextStore.getState().setActiveRanchId(null);
+  sessionClearedListeners.forEach((listener) => listener());
 }
 
 // --- Cola de peticiones concurrentes durante el refresh (WEB-002) ---
@@ -169,7 +180,11 @@ export async function apiFetch<T>(
   const headers = new Headers(fetchInit.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (activeRanchId) headers.set("X-Active-Ranch-Id", activeRanchId);
+  if (ranchId === null) {
+    headers.delete("X-Active-Ranch-Id");
+  } else if (activeRanchId) {
+    headers.set("X-Active-Ranch-Id", activeRanchId);
+  }
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...fetchInit, headers });
 
