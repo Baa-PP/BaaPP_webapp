@@ -3,6 +3,7 @@ import { create } from "zustand";
 export interface Ranch {
   id: string;
   name: string;
+  address?: string;
   owner_name?: string;
   weaning_days_target?: number;
   last_sync_at?: string;

@@ -38,9 +38,10 @@ function normalizeRanches(p:any):Ranch[]{
       return {
         id,
         name:String(item?.name??item?.ranchName??item?.ranch_name??`Rancho ${idx+1}`),
-        owner_name:item?.owner_name??item?.ownerName??item?.propietario,
-        weaning_days_target:item?.weaning_days_target??item?.weaningDaysTarget,
-        last_sync_at:item?.last_sync_at??item?.lastSyncAt??item?.ultima_sincronizacion,
+        address:item?.address??item?.domicilio,
+        owner_name:item?.owner??item?.owner_name??item?.ownerName??item?.propietario,
+        weaning_days_target:item?.weaningTargetDays??item?.weaning_days_target??item?.weaningDaysTarget,
+        last_sync_at:item?.lastSyncedAt??item?.last_sync_at??item?.lastSyncAt??item?.ultima_sincronizacion,
       } as Ranch;
     })
     .filter((r:Ranch|null):r is Ranch=>r!==null);
@@ -148,11 +149,11 @@ function PortalApp(){
   const detailId=detail?url.slice(11):'';
   const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos'].includes(url));
 
-  // WEB-005: Dynamic list of affiliated ranches from GET /api/v1/ranches
+  // WEB-005: Dynamic list of affiliated ranches from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
     queryKey:['ranches',s?.username],
     queryFn:async()=>{
-      const p=await apiFetch<unknown>('/ranches');
+      const p=await apiFetch<unknown>('/ranches',{ranchId:null});
       return normalizeRanches(p);
     },
     enabled:Boolean(s&&multi),
@@ -163,30 +164,34 @@ function PortalApp(){
     setAvailableRanches(ranchesQuery.data);
   },[ranchesQuery.data,setAvailableRanches]);
 
-  // Inventory list query (keyed by activeRanchId so ranches never mix data)
+  // Inventory list query (keyed by activeRanchId and passes that key's ranchId into apiFetch)
   const animalsQuery=useQuery({
-    queryKey:['animals',s?.username,activeRanchId,applied],
-    queryFn:async()=>{
-      const p=await apiFetch<unknown>('/animals'+qs(applied));
+    queryKey:['animals',s?.username,activeRanchId,applied] as const,
+    queryFn:async({queryKey})=>{
+      const ranchId=queryKey[2];
+      const p=await apiFetch<unknown>('/animals'+qs(applied),{ranchId});
       return rows(p);
     },
     enabled:Boolean(isInventoryRoute&&!detail&&(!multi||activeRanchId)),
   });
 
-  // Individual animal detail query (keyed by activeRanchId + detailId)
+  // Individual animal detail query (keyed by activeRanchId + detailId, passes key's ranchId into apiFetch)
   const animalQuery=useQuery({
-    queryKey:['animal',s?.username,activeRanchId,detailId],
-    queryFn:async()=>{
-      const p=await apiFetch<unknown>('/animals/'+encodeURIComponent(detailId));
+    queryKey:['animal',s?.username,activeRanchId,detailId] as const,
+    queryFn:async({queryKey})=>{
+      const ranchId=queryKey[2];
+      const p=await apiFetch<unknown>('/animals/'+encodeURIComponent(detailId),{ranchId});
       return (data(p).animal||data(p)) as Animal;
     },
     enabled:Boolean(isInventoryRoute&&detail&&detailId&&(!multi||activeRanchId)),
   });
 
-  // If apiFetch cleared session after an unrecoverable 401, synchronize React state
+  // If apiFetch cleared session after an unrecoverable 401 on any query, synchronize React state
   useEffect(()=>{
-    const err=(ranchesQuery.error||animalsQuery.error||animalQuery.error) as ApiError|null;
-    if(err&&err.status===401&&!sessionStorage.getItem('jwt_token')){
+    const hasUnauthorized=[ranchesQuery.error,animalsQuery.error,animalQuery.error].some(
+      e=>Boolean(e&&(e as ApiError).status===401)
+    );
+    if(hasUnauthorized&&!sessionStorage.getItem('jwt_token')){
       sessionStorage.removeItem(KEY);
       setS(null);
       qc.clear();

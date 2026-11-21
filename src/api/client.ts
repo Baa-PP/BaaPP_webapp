@@ -150,19 +150,28 @@ async function refreshSession(): Promise<string> {
 
 // --- apiFetch principal ---
 
+export interface ApiFetchOptions extends RequestInit {
+  /** Overrides X-Active-Ranch-Id for this request. Pass null to omit the header. */
+  ranchId?: string | null;
+}
+
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit = {}
+  init: ApiFetchOptions = {}
 ): Promise<T> {
-  const activeRanchId = useRanchContextStore.getState().activeRanchId;
+  const { ranchId, ...fetchInit } = init;
+  const activeRanchId =
+    ranchId !== undefined
+      ? ranchId
+      : useRanchContextStore.getState().activeRanchId;
   const token = sessionStorage.getItem("jwt_token");
 
-  const headers = new Headers(init.headers);
+  const headers = new Headers(fetchInit.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (activeRanchId) headers.set("X-Active-Ranch-Id", activeRanchId);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...fetchInit, headers });
 
   // --- WEB-002: interceptor 401 ---
   if (response.status === 401) {
@@ -172,7 +181,7 @@ export async function apiFetch<T>(
     if (currentToken && currentToken !== token) {
       headers.set("Authorization", `Bearer ${currentToken}`);
       const retryRes = await fetch(`${API_BASE_URL}${path}`, {
-        ...init,
+        ...fetchInit,
         headers,
       });
       return parseResponse<T>(retryRes);
@@ -186,7 +195,7 @@ export async function apiFetch<T>(
             try {
               headers.set("Authorization", `Bearer ${newToken}`);
               const res = await fetch(`${API_BASE_URL}${path}`, {
-                ...init,
+                ...fetchInit,
                 headers,
               });
               resolve(await parseResponse<T>(res));
@@ -240,7 +249,7 @@ export async function apiFetch<T>(
     // de refresh: errores 5xx o de red aquí NO deben limpiar la sesión)
     headers.set("Authorization", `Bearer ${newToken}`);
     const retryRes = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
+      ...fetchInit,
       headers,
     });
 
