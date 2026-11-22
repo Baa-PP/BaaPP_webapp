@@ -14,6 +14,7 @@ const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',dat
 const payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
 const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
 const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=new Date(s);return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
+const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
@@ -179,14 +180,14 @@ function PortalApp(){
   const detailId=detail?url.slice(11):'';
   const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos'].includes(url));
 
-  // WEB-005: Dynamic list of affiliated ranches from GET /api/v1/ranches (BE-004), independent of active ranch
+  // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
     queryKey:['ranches',s?.username],
     queryFn:async()=>{
       const p=await apiFetch<unknown>('/ranches',{ranchId:null});
       return normalizeRanches(p);
     },
-    enabled:Boolean(s&&multi),
+    enabled:Boolean(s),
   });
 
   useEffect(()=>{
@@ -345,7 +346,8 @@ function PortalApp(){
   }
 
   const show=canInventory(s);
-  const selectedRanch=availableRanches.find(r=>r.id===activeRanchId)||null;
+  const selectedRanch=activeRanchId?availableRanches.find(r=>r.id===activeRanchId)??null:null;
+  const ranchSynced=hasValidSync(selectedRanch?.last_sync_at);
   const animals=animalsQuery.data??[];
   const animal=animalQuery.data??null;
   const loading=detail?animalQuery.isFetching:animalsQuery.isFetching;
@@ -377,19 +379,8 @@ function PortalApp(){
         <header className="topbar">
           <div className="topbar-left">
             <span className="topbar-title">{pageTitle}</span>
-            {multi&&selectedRanch&&(
-              <div className="ranch-meta" aria-label="Datos del rancho seleccionado">
-                <span>
-                  Propietario: <b>{selectedRanch.owner_name||'Sin dato'}</b>
-                </span>
-                <span className="meta-sep" aria-hidden="true">·</span>
-                <span>
-                  Última sync móvil: <b>{formatDateTime(selectedRanch.last_sync_at)}</b>
-                </span>
-              </div>
-            )}
           </div>
-          <div className="account">
+          <div className="ranch-bar" aria-label="Contexto del rancho activo">
             {multi&&(
               <div className="ranch-control">
                 <label className="ranch">
@@ -420,6 +411,28 @@ function PortalApp(){
                 )}
               </div>
             )}
+            {selectedRanch?(
+              <div className="ranch-summary" aria-label="Datos del rancho seleccionado">
+                <strong className="ranch-summary-name">{selectedRanch.name}</strong>
+                <span className="meta-sep" aria-hidden="true">·</span>
+                <span className="ranch-summary-item">
+                  Propietario: <b>{selectedRanch.owner_name||'Sin dato'}</b>
+                </span>
+                <span className="meta-sep" aria-hidden="true">·</span>
+                <span className={'ranch-sync '+(ranchSynced?'synced':'pending')}>
+                  <span className="sync-dot" aria-hidden="true" />
+                  Última sync móvil: <b>{formatDateTime(selectedRanch.last_sync_at)}</b>
+                </span>
+              </div>
+            ):ranchesQuery.isLoading?(
+              <span className="ranch-loading">Cargando datos del rancho…</span>
+            ):(
+              <div className="ranch-summary" aria-label="Datos del rancho seleccionado">
+                <span className="ranch-summary-item">Datos del rancho no disponibles</span>
+              </div>
+            )}
+          </div>
+          <div className="account">
             <span className="account-user">{s.username}</span>
             <span className="role-badge">{s.role||'USUARIO'}</span>
             <button type="button" className="secondary-button" onClick={logout}>
