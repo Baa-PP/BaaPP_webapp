@@ -19,8 +19,9 @@ import { API_BASE_URL } from "./config";
  *   3. Si hay refreshToken → ejecuta POST /api/v1/auth/refresh una sola vez (BE-001 rota
  *      accessToken y refreshToken), actualiza sessionStorage y baapp.session (con guardia
  *      de generación), drena la cola y reintenta todas las peticiones.
- *   4. Si el refresh falla, falta refreshToken o el reintento devuelve 401 → limpia la
- *      sesión, notifica a React vía onSessionCleared y redirige a #/login.
+ *   4. Si el refresh rechaza credenciales (4xx no transitorio), falta refreshToken o el
+ *      reintento devuelve 401 → limpia la sesión, notifica vía onSessionCleared y redirige
+ *      a #/login. Ante fallos transitorios (red, 408, 429, 5xx) conserva tokens y relanza.
  */
 
 export interface ApiError extends Error {
@@ -36,6 +37,21 @@ function createApiError(status: number, message: string): ApiError {
   const err = new Error(message) as ApiError;
   err.status = status;
   return err;
+}
+
+/**
+ * Política explícita de clasificación de errores en POST /api/v1/auth/refresh:
+ * - No recuperables (limpian sesión y redirigen a #/login): códigos HTTP 4xx que rechazan
+ *   credenciales o solicitud de sesión (p. ej. 400, 401, 403, 404), excluyendo 408 y 429.
+ * - Transitorios / recuperables (conservan tokens almacenados y relanzan para reintento):
+ *   errores de red/timeout (sin status HTTP numérico), 408 Request Timeout,
+ *   429 Too Many Requests y 5xx del servidor.
+ */
+function isNonRecoverableRefreshError(err: unknown): boolean {
+  const status = (err as Partial<ApiError>)?.status;
+  if (typeof status !== "number") return false;
+  if (status === 408 || status === 429) return false;
+  return status >= 400 && status < 500;
 }
 
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -302,8 +318,7 @@ export async function apiFetch<T>(
     } catch (refreshErr) {
       flushQueue(refreshErr);
       isRefreshing = false;
-      const status = (refreshErr as Partial<ApiError>)?.status;
-      if (typeof status === "number" && status >= 400 && status < 500) {
+      if (isNonRecoverableRefreshError(refreshErr)) {
         expireSessionAndRedirect(initialSessionGen);
       }
       throw refreshErr;
