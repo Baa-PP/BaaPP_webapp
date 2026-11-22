@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
 import { API_BASE_URL } from './api/config';
 import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
@@ -12,6 +13,7 @@ const stages=['LAMB_LACTATING','LAMB_FATTENING','EWE_REPLACEMENT','ADULT'],repro
 const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
 const payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
 const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
+const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=new Date(s);return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
@@ -80,47 +82,74 @@ function mergeLatestTokens(base:Session,ranchId:string|undefined):Session{
   };
 }
 
+const queryClient=new QueryClient({
+  defaultOptions:{
+    queries:{
+      retry:1,
+      refetchOnWindowFocus:false,
+    },
+  },
+});
+
 export default function App(){
-  const {setActiveRanchId,setAvailableRanches}=useRanchContextStore();
+  return (
+    <QueryClientProvider client={queryClient}>
+      <PortalApp/>
+    </QueryClientProvider>
+  );
+}
+
+function PortalApp(){
+  const qc=useQueryClient();
+  const {activeRanchId,availableRanches,setActiveRanchId,setAvailableRanches}=useRanchContextStore();
   const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
-  const [animalsState,setAnimalsState]=useState<{ranchId:string|null;rows:Animal[]}>({ranchId:null,rows:[]}),[animalState,setAnimalState]=useState<{ranchId:string|null;route:string;data:Animal|null}>({ranchId:null,route:'',data:null}),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const empty={folio_interno:'',siniiga_chip:'',registro_uno:'',sex:'',life_stage:'',reproductive_status:'',breed:'',status:''},[filters,setFilters]=useState(empty),[applied,setApplied]=useState(empty);
-  const activeRanchId=s?.activeRanchId||s?.ranches[0]?.id||'';
-  const canReadInventory=Boolean(s&&canInventory(s));
 
   useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
 
   // Sync persisted session into sessionStorage (for apiFetch) and useRanchContextStore
   useEffect(()=>{
-    setAnimalsState({ranchId:null,rows:[]});
-    setAnimalState({ranchId:null,route:'',data:null});
     if(!s){
       setAvailableRanches([]);
       setActiveRanchId(null);
       return;
     }
     syncTokensToSessionStorage(s,false);
-    if(s.ranches.length>0)setAvailableRanches(s.ranches);
-    setActiveRanchId(activeRanchId||null);
+    if(s.ranches.length>0){
+      setAvailableRanches(s.ranches);
+    }
+    if(s.activeRanchId){
+      setActiveRanchId(s.activeRanchId);
+    }
   },[s?.username]);
+
+  // Keep sessionStorage activeRanchId synchronized with store changes without overwriting refreshed tokens
+  useEffect(()=>{
+    if(!s)return;
+    const nextRanchId=useRanchContextStore.getState().activeRanchId??undefined;
+    const persistedRanchId=read()?.activeRanchId;
+    if(persistedRanchId===nextRanchId)return;
+    const updated=mergeLatestTokens(s,nextRanchId);
+    sessionStorage.setItem(KEY,JSON.stringify(updated));
+  },[activeRanchId,s]);
 
   // Keep React state synchronized when WEB-002 apiFetch refreshes or expires the session
   useEffect(()=>{
     const unsubCleared=onSessionCleared(()=>{
       setAvailableRanches([]);
+      qc.clear();
       setS(null);
       setPass('');
       setShowPassword(false);
-      setAnimalsState({ranchId:null,rows:[]});
-      setAnimalState({ranchId:null,route:'',data:null});
       if(location.hash!=='#/login')location.hash='/login';
     });
     const unsubRefreshed=onSessionRefreshed(({accessToken,refreshToken})=>{
       setS(prev=>prev?{...prev,accessToken,refreshToken:refreshToken??prev.refreshToken}:null);
     });
     return()=>{unsubCleared();unsubRefreshed()};
-  },[setAvailableRanches]);
+  },[qc,setAvailableRanches]);
 
+  // Route guard (WEB-004)
   useEffect(()=>{
     if(!s){
       if(url!=='login')location.hash='/login';
@@ -145,23 +174,59 @@ export default function App(){
     }
   },[s,url]);
 
-  // All authenticated requests go through apiFetch (WEB-002 + WEB-003) so concurrent 401s trigger only 1 refresh
+  const multi=Boolean(s&&AUDIT.includes(s.role));
+  const detail=url.startsWith('inventario/');
+  const detailId=detail?url.slice(11):'';
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos'].includes(url));
+
+  // WEB-005: Dynamic list of affiliated ranches from GET /api/v1/ranches (BE-004), independent of active ranch
+  const ranchesQuery=useQuery({
+    queryKey:['ranches',s?.username],
+    queryFn:async()=>{
+      const p=await apiFetch<unknown>('/ranches',{ranchId:null});
+      return normalizeRanches(p);
+    },
+    enabled:Boolean(s&&multi),
+  });
+
   useEffect(()=>{
-    if(!s?.username||!canReadInventory||['login','sin-permisos','auditoria-nacimientos'].includes(url))return;
-    let stop=false;setLoading(true);setError('');
-    const detail=url.startsWith('inventario/'),path=detail?'/animals/'+encodeURIComponent(url.slice(11)):'/animals'+qs(applied);
-    if(detail)setAnimalState(prev=>prev.ranchId===activeRanchId&&prev.route===url?prev:{ranchId:null,route:'',data:null});
-    else setAnimalsState(prev=>prev.ranchId===activeRanchId?prev:{ranchId:null,rows:[]});
-    apiFetch<unknown>(path,{ranchId:activeRanchId||null}).then(p=>{
-      if(stop)return;
-      if(detail)setAnimalState({ranchId:activeRanchId,route:url,data:data(p).animal||data(p)});
-      else setAnimalsState({ranchId:activeRanchId,rows:rows(p)});
-    }).catch(e=>{
-      if(stop)return;
-      setError(e instanceof Error?e.message:'Error al consultar el inventario.');
-    }).finally(()=>!stop&&setLoading(false));
-    return()=>{stop=true};
-  },[s?.username,canReadInventory,url,applied,activeRanchId]);
+    if(!ranchesQuery.data)return;
+    setAvailableRanches(ranchesQuery.data);
+  },[ranchesQuery.data,setAvailableRanches]);
+
+  // Inventory list query (keyed by activeRanchId and passes that key's ranchId into apiFetch)
+  const animalsQuery=useQuery({
+    queryKey:['animals',s?.username,activeRanchId,applied] as const,
+    queryFn:async({queryKey})=>{
+      const ranchId=queryKey[2];
+      const p=await apiFetch<unknown>('/animals'+qs(applied),{ranchId});
+      return rows(p);
+    },
+    enabled:Boolean(isInventoryRoute&&!detail&&(!multi||activeRanchId)),
+  });
+
+  // Individual animal detail query (keyed by activeRanchId + detailId, passes key's ranchId into apiFetch)
+  const animalQuery=useQuery({
+    queryKey:['animal',s?.username,activeRanchId,detailId] as const,
+    queryFn:async({queryKey})=>{
+      const ranchId=queryKey[2];
+      const p=await apiFetch<unknown>('/animals/'+encodeURIComponent(detailId),{ranchId});
+      return (data(p).animal||data(p)) as Animal;
+    },
+    enabled:Boolean(isInventoryRoute&&detail&&detailId&&(!multi||activeRanchId)),
+  });
+
+  function handleRanchChange(ranchId:string){
+    const nextId=ranchId||null;
+    setActiveRanchId(nextId);
+    if(s){
+      const updated=mergeLatestTokens(s,nextId??undefined);
+      setS(updated);
+      sessionStorage.setItem(KEY,JSON.stringify(updated));
+    }
+    // WEB-005: invalidate all queries so every view refreshes for the new ranch without re-login
+    qc.invalidateQueries();
+  }
 
   async function login(e:FormEvent){
     e.preventDefault();setBusy(true);setLoginErr('');
@@ -185,6 +250,7 @@ export default function App(){
       if(n.ranches[0]&&!n.activeRanchId)n.activeRanchId=n.ranches[0].id;
       const persisted=mergeLatestTokens(n,n.activeRanchId);
       sessionStorage.setItem(KEY,JSON.stringify(persisted));
+      qc.clear();
       if(persisted.ranches.length>0)setAvailableRanches(persisted.ranches);
       setActiveRanchId(persisted.activeRanchId||null);
       setS(persisted);setPass('');setShowPassword(false);
@@ -200,15 +266,6 @@ export default function App(){
     setFilters(empty);
     setApplied(empty);
     location.hash='/login';
-  }
-
-  function selectRanch(id:string){
-    setActiveRanchId(id||null);
-    if(s){
-      const n=mergeLatestTokens(s,id||undefined);
-      setS(n);
-      sessionStorage.setItem(KEY,JSON.stringify(n));
-    }
   }
 
   if(!s||url==='login'){
@@ -287,9 +344,12 @@ export default function App(){
     );
   }
 
-  const show=canInventory(s),multi=AUDIT.includes(s.role),detail=url.startsWith('inventario/');
-  const animals=animalsState.ranchId===activeRanchId?animalsState.rows:[];
-  const animal=animalState.ranchId===activeRanchId&&animalState.route===url?animalState.data:null;
+  const show=canInventory(s);
+  const selectedRanch=availableRanches.find(r=>r.id===activeRanchId)||null;
+  const animals=animalsQuery.data??[];
+  const animal=animalQuery.data??null;
+  const loading=detail?animalQuery.isFetching:animalsQuery.isFetching;
+  const error=detail?(animalQuery.error instanceof Error?animalQuery.error.message:''):(animalsQuery.error instanceof Error?animalsQuery.error.message:'');
   const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
@@ -315,19 +375,50 @@ export default function App(){
       </aside>
       <div className="portal-main">
         <header className="topbar">
-          <span className="topbar-title">{pageTitle}</span>
+          <div className="topbar-left">
+            <span className="topbar-title">{pageTitle}</span>
+            {multi&&selectedRanch&&(
+              <div className="ranch-meta" aria-label="Datos del rancho seleccionado">
+                <span>
+                  Propietario: <b>{selectedRanch.owner_name||'Sin dato'}</b>
+                </span>
+                <span className="meta-sep" aria-hidden="true">·</span>
+                <span>
+                  Última sync móvil: <b>{formatDateTime(selectedRanch.last_sync_at)}</b>
+                </span>
+              </div>
+            )}
+          </div>
           <div className="account">
-            {multi&&s.ranches.length>0&&(
-              <label className="ranch">
-                <span>Rancho activo</span>
-                <select value={activeRanchId} onChange={e=>selectRanch(e.target.value)}>
-                  {s.ranches.map((r,i)=>(
-                    <option key={r.id||i} value={r.id}>
-                      {r.name||'Rancho '+(i+1)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {multi&&(
+              <div className="ranch-control">
+                <label className="ranch">
+                  <span>Rancho activo</span>
+                  <select
+                    aria-label="Rancho activo"
+                    value={activeRanchId??''}
+                    disabled={ranchesQuery.isLoading&&availableRanches.length===0}
+                    onChange={e=>handleRanchChange(e.target.value)}
+                  >
+                    {ranchesQuery.isLoading&&availableRanches.length===0?(
+                      <option value="">Cargando ranchos…</option>
+                    ):availableRanches.length===0?(
+                      <option value="">Sin ranchos afiliados</option>
+                    ):(
+                      availableRanches.map(r=>(
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+                {ranchesQuery.isError&&availableRanches.length===0&&(
+                  <button type="button" className="link-button" onClick={()=>ranchesQuery.refetch()}>
+                    Reintentar
+                  </button>
+                )}
+              </div>
             )}
             <span className="account-user">{s.username}</span>
             <span className="role-badge">{s.role||'USUARIO'}</span>
@@ -347,7 +438,11 @@ export default function App(){
             <section className="empty-panel">
               <p className="eyebrow">Acceso por rol</p>
               <h1>Bandeja de auditoría de nacimientos</h1>
-              <p className="intro">Tu rol tiene acceso autorizado a esta sección. La consulta y corrección auditada se habilitará en el módulo correspondiente.</p>
+              <p className="intro">
+                {selectedRanch
+                  ?`Contexto activo: ${selectedRanch.name}. La consulta y corrección auditada se habilitará en el módulo correspondiente.`
+                  :'Tu rol tiene acceso autorizado a esta sección. La consulta y corrección auditada se habilitará en el módulo correspondiente.'}
+              </p>
             </section>
           ):detail?(
             <>
@@ -364,7 +459,9 @@ export default function App(){
             <>
               <div className="title-row">
                 <div>
-                  <p className="eyebrow">Rebaño · Registro individual</p>
+                  <p className="eyebrow">
+                    {selectedRanch?`${selectedRanch.name} · Registro individual`:'Rebaño · Registro individual'}
+                  </p>
                   <h1>Inventario del rebaño</h1>
                   <p className="intro">Consulta, filtra y abre la reseña oficial certificada de cada ejemplar.</p>
                 </div>
@@ -429,7 +526,7 @@ export default function App(){
                 <div className="table-head">
                   <b>Ejemplares</b>
                   <span>{loading?'Actualizando…':animals.length+' registros'}</span>
-                  <small>Datos del rancho activo</small>
+                  <small>{selectedRanch?selectedRanch.name:'Datos del rancho activo'}</small>
                 </div>
                 {error&&<p className="error table-error" role="alert">{error}</p>}
                 {!loading&&!error&&!animals.length?(
@@ -454,7 +551,7 @@ export default function App(){
                         {animals.map(a=>(
                           <tr key={a.id}>
                             <td>
-                              <a className="animal-link" href={'#/inventario/'+encodeURIComponent(a.id)} onClick={()=>setAnimalState({ranchId:null,route:'',data:null})}>
+                              <a className="animal-link" href={'#/inventario/'+encodeURIComponent(a.id)}>
                                 {a.folio_interno||'Sin arete'}
                                 <small>Nació {date(a.birth_date||a.fecha_nacimiento)}</small>
                               </a>
