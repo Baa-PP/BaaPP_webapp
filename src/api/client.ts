@@ -302,7 +302,10 @@ export async function apiFetch<T>(
     } catch (refreshErr) {
       flushQueue(refreshErr);
       isRefreshing = false;
-      expireSessionAndRedirect(initialSessionGen);
+      const status = (refreshErr as Partial<ApiError>)?.status;
+      if (typeof status === "number" && status >= 400 && status < 500) {
+        expireSessionAndRedirect(initialSessionGen);
+      }
       throw refreshErr;
     }
 
