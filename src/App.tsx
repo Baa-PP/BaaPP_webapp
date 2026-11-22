@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
 import { API_BASE_URL } from './api/config';
 import { RanchProfileForm } from './features/ranch/RanchProfileForm';
+import { WorkerManagement } from './features/workers/WorkerManagement';
 import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
 
 type Animal={id:string;folio_interno?:string;siniiga_chip?:string;chip_siniiga?:string;registro_uno?:string;adn?:string;sex?:string;life_stage?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birth_date?:string;fecha_nacimiento?:string;criador_name?:string;owner_name?:string;ranch_name?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortality_date?:string;mortality_cause?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conception_method?:string;metodo_concepcion?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
@@ -19,6 +20,7 @@ const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const canEditRanch=(s:Session)=>RANCH_EDIT_ROLES.includes(s.role);
+const canManageWorkers=(s:Session)=>s.role==='OWNER';
 const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
 const qs=(f:Record<string,string>)=>{const q=new URLSearchParams();Object.entries(f).forEach(([k,v])=>v&&q.set(k,v));return q.size?'?'+q.toString():''};
 
@@ -170,8 +172,12 @@ function PortalApp(){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
     }
+    if(url==='cuentas-rama'&&!canManageWorkers(s)){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='rancho';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='rancho'||url==='cuentas-rama';
     if(!isKnown){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
@@ -183,9 +189,10 @@ function PortalApp(){
 
   const multi=Boolean(s&&AUDIT.includes(s.role));
   const canEdit=Boolean(s&&canEditRanch(s));
+  const canWorkers=Boolean(s&&canManageWorkers(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','rancho'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','rancho','cuentas-rama'].includes(url));
 
   // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
@@ -375,7 +382,7 @@ function PortalApp(){
   const animal=animalQuery.data??null;
   const loading=detail?animalQuery.isFetching:animalsQuery.isFetching;
   const error=detail?(animalQuery.error instanceof Error?animalQuery.error.message:''):(animalsQuery.error instanceof Error?animalsQuery.error.message:'');
-  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -394,6 +401,11 @@ function PortalApp(){
           {canEdit&&(
             <a className={url==='rancho'?'nav-link active':'nav-link'} href="#/rancho">
               Perfil del rancho
+            </a>
+          )}
+          {canWorkers&&(
+            <a className={url==='cuentas-rama'?'nav-link active':'nav-link'} href="#/cuentas-rama">
+              Cuentas rama
             </a>
           )}
           {AUDIT.includes(s.role)&&(
@@ -482,6 +494,14 @@ function PortalApp(){
               error={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudo cargar el perfil del rancho.'):''}
               onRetry={()=>{void ranchesQuery.refetch()}}
               onSaved={handleRanchSaved}
+            />
+          ):url==='cuentas-rama'&&canWorkers?(
+            <WorkerManagement
+              ranchId={activeRanchId??selectedRanch?.id??null}
+              ranchName={selectedRanch?.name}
+              ranchLoading={ranchesQuery.isFetching}
+              ranchError={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudo cargar la información del rancho.'):''}
+              onRetryRanch={()=>{void ranchesQuery.refetch()}}
             />
           ):url==='auditoria-nacimientos'?(
             <section className="empty-panel">
