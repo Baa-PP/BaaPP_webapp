@@ -186,10 +186,15 @@ export async function apiFetch<T>(
     headers.set("X-Active-Ranch-Id", activeRanchId);
   }
 
+  const requestGen = sessionGeneration;
   const response = await fetch(`${API_BASE_URL}${path}`, { ...fetchInit, headers });
 
   // --- WEB-002: interceptor 401 ---
   if (response.status === 401) {
+    if (sessionGeneration !== requestGen) {
+      throw createApiError(401, "Sesión cancelada");
+    }
+
     // 1. Comparar el token usado en la petición fallida con el token actualmente almacenado.
     // Si ya existe un token más nuevo (refrescado por otra petición concurrente), reintentar sin refrescar otra vez.
     const currentToken = sessionStorage.getItem("jwt_token");
@@ -239,11 +244,14 @@ export async function apiFetch<T>(
         throw refreshErr;
       }
 
-      clearSession();
-      if (window.location.hash) {
-        window.location.hash = "/login";
-      } else {
-        window.location.href = "/login";
+      const status = (refreshErr as Partial<ApiError>)?.status;
+      if (status === 401 || status === 403) {
+        clearSession();
+        if (window.location.hash) {
+          window.location.hash = "/login";
+        } else {
+          window.location.href = "/login";
+        }
       }
       throw refreshErr;
     }

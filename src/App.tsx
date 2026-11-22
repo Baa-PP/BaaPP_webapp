@@ -2,23 +2,22 @@ import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, clearSession, onSessionCleared } from './api/client';
 import { API_BASE_URL } from './api/config';
+import { InventoryView } from './features/inventory/InventoryView';
 import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
 
-type Animal={id:string;folio_interno?:string;siniiga_chip?:string;chip_siniiga?:string;registro_uno?:string;adn?:string;sex?:string;life_stage?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birth_date?:string;fecha_nacimiento?:string;criador_name?:string;owner_name?:string;ranch_name?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortality_date?:string;mortality_cause?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conception_method?:string;metodo_concepcion?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
-type Measure={milestone?:string;hito?:string;weight_kg?:number;peso_kg?:number;measured_at?:string;fecha?:string;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
+type Animal={id:string;folioInterno?:string;folio_interno?:string;siniigaChip?:string;siniiga_chip?:string;chip_siniiga?:string;registroUno?:string;registro_uno?:string;adn?:string;sex?:string;lifeStage?:string;life_stage?:string;reproductiveStatus?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birthDate?:string;birth_date?:string;fecha_nacimiento?:string;criador?:string;criador_name?:string;propietario?:string;owner_name?:string;ranch_name?:string;photoUrl?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortalityDate?:string;mortality_date?:string;mortalityCause?:string;mortality_cause?:string;lifeStageAtDeath?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;weights?:Measure[];measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;externalSireFolio?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;externalDamFolio?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conceptionMethod?:string;conception_method?:string;metodo_concepcion?:string;parturitionType?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
+type Measure={milestone?:string;hito?:string;weightKg?:number;weight_kg?:number;peso_kg?:number;date?:string;measured_at?:string;fecha?:string;scrotalCircumferenceCm?:number;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
 type Session={accessToken:string;refreshToken?:string;role:string;username:string;ranches:Ranch[];permissions?:Record<string,any>;activeRanchId?:string};
 
 const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
 const names:Record<string,string>={FEMALE:'Hembra',MALE:'Macho',LAMB_LACTATING:'Cordero lactante',LAMB_FATTENING:'Cordero en engorda',EWE_REPLACEMENT:'Reemplazo',ADULT:'Adulto',EMPTY:'Vacía',PREGNANT:'Gestante',LACTATING:'Lactante',STUD_RAM:'Semental',ACTIVE:'Activo',SOLD:'Vendido',DECEASED:'Fallecido',BIRTH:'Nacimiento',WEANING:'Destete',DAY_120:'120 días',DAY_150:'150 días',EVALUATION:'Evaluación',MN:'Monta natural',IA:'Inseminación artificial',TE:'Transferencia de embriones',SIMPLE:'Parto simple',DOBLE:'Parto doble',TRIPLE:'Parto triple'};
-const stages=['LAMB_LACTATING','LAMB_FATTENING','EWE_REPLACEMENT','ADULT'],repro=['EMPTY','PREGNANT','LACTATING','STUD_RAM'],states=['ACTIVE','SOLD','DECEASED'];
 const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
-const read=():Session|null=>{try{return JSON.parse(sessionStorage.getItem(KEY)||'null')}catch{return null}}, payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
+const read=():Session|null=>{try{const raw=JSON.parse(sessionStorage.getItem(KEY)||'null');if(!raw||typeof raw!=='object')return null;return {...raw,ranches:normalizeRanches(raw.ranches??raw)} as Session}catch{return null}}, payload=async(r:Response)=>{try{return await r.json()}catch{return {}}};
 const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
 const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=new Date(s);return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
-const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
-const qs=(f:Record<string,string>)=>{const q=new URLSearchParams();Object.entries(f).forEach(([k,v])=>v&&q.set(k,v));return q.size?'?'+q.toString():''};
+const list=(a:Animal)=>a.weights||a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weightKg??m.weight_kg??m.peso_kg);
 
 function normalizeRanches(p:any):Ranch[]{
   const d=data(p);
@@ -92,7 +91,6 @@ function PortalApp(){
   const qc=useQueryClient();
   const {activeRanchId,availableRanches,setActiveRanchId,setAvailableRanches}=useRanchContextStore();
   const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
-  const empty={folio_interno:'',siniiga_chip:'',registro_uno:'',sex:'',life_stage:'',reproductive_status:'',breed:'',status:''},[filters,setFilters]=useState(empty),[applied,setApplied]=useState(empty);
 
   useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
 
@@ -114,8 +112,11 @@ function PortalApp(){
 
   // Keep sessionStorage activeRanchId synchronized with store changes without overwriting refreshed tokens
   useEffect(()=>{
-    if(!s||!activeRanchId||s.activeRanchId===activeRanchId)return;
-    const updated=mergeLatestTokens(s,activeRanchId);
+    if(!s)return;
+    const nextRanchId=useRanchContextStore.getState().activeRanchId??undefined;
+    const persistedRanchId=read()?.activeRanchId;
+    if(persistedRanchId===nextRanchId)return;
+    const updated=mergeLatestTokens(s,nextRanchId);
     sessionStorage.setItem(KEY,JSON.stringify(updated));
   },[activeRanchId,s]);
 
@@ -149,14 +150,14 @@ function PortalApp(){
   const detailId=detail?url.slice(11):'';
   const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos'].includes(url));
 
-  // WEB-005: Dynamic list of affiliated ranches from GET /api/v1/ranches (BE-004), independent of active ranch
+  // WEB-005: Dynamic list of accessible ranches from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
     queryKey:['ranches',s?.username],
     queryFn:async()=>{
       const p=await apiFetch<unknown>('/ranches',{ranchId:null});
       return normalizeRanches(p);
     },
-    enabled:Boolean(s&&multi),
+    enabled:Boolean(s),
   });
 
   useEffect(()=>{
@@ -164,23 +165,12 @@ function PortalApp(){
     setAvailableRanches(ranchesQuery.data);
   },[ranchesQuery.data,setAvailableRanches]);
 
-  // Inventory list query (keyed by activeRanchId and passes that key's ranchId into apiFetch)
-  const animalsQuery=useQuery({
-    queryKey:['animals',s?.username,activeRanchId,applied] as const,
-    queryFn:async({queryKey})=>{
-      const ranchId=queryKey[2];
-      const p=await apiFetch<unknown>('/animals'+qs(applied),{ranchId});
-      return rows(p);
-    },
-    enabled:Boolean(isInventoryRoute&&!detail&&(!multi||activeRanchId)),
-  });
-
   // Individual animal detail query (keyed by activeRanchId + detailId, passes key's ranchId into apiFetch)
   const animalQuery=useQuery({
     queryKey:['animal',s?.username,activeRanchId,detailId] as const,
     queryFn:async({queryKey})=>{
       const ranchId=queryKey[2];
-      const p=await apiFetch<unknown>('/animals/'+encodeURIComponent(detailId),{ranchId});
+      const p=await apiFetch<unknown>('/animals/'+encodeURIComponent(detailId),{ranchId:ranchId??undefined});
       return (data(p).animal||data(p)) as Animal;
     },
     enabled:Boolean(isInventoryRoute&&detail&&detailId&&(!multi||activeRanchId)),
@@ -243,8 +233,6 @@ function PortalApp(){
     setS(null);
     setPass('');
     setShowPassword(false);
-    setFilters(empty);
-    setApplied(empty);
     location.hash='/login';
   }
 
@@ -325,11 +313,10 @@ function PortalApp(){
   }
 
   const show=canInventory(s);
-  const selectedRanch=availableRanches.find(r=>r.id===activeRanchId)||null;
-  const animals=animalsQuery.data??[];
+  const selectedRanch=activeRanchId?availableRanches.find(r=>r.id===activeRanchId)??null:null;
   const animal=animalQuery.data??null;
-  const loading=detail?animalQuery.isFetching:animalsQuery.isFetching;
-  const error=detail?(animalQuery.error instanceof Error?animalQuery.error.message:''):(animalsQuery.error instanceof Error?animalsQuery.error.message:'');
+  const loading=animalQuery.isFetching;
+  const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
   const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
@@ -436,138 +423,15 @@ function PortalApp(){
               ):animal&&<Certificate a={animal}/>}
             </>
           ):(
-            <>
-              <div className="title-row">
-                <div>
-                  <p className="eyebrow">
-                    {selectedRanch?`${selectedRanch.name} · Registro individual`:'Rebaño · Registro individual'}
-                  </p>
-                  <h1>Inventario del rebaño</h1>
-                  <p className="intro">Consulta, filtra y abre la reseña oficial certificada de cada ejemplar.</p>
-                </div>
-                <div className="count-card">
-                  <b>{animals.length}</b>
-                  <span>ejemplares</span>
-                </div>
-              </div>
-              <form className="filters" onSubmit={e=>{e.preventDefault();setApplied({...filters})}}>
-                <div className="filter-title">
-                  <b>Buscar y filtrar</b>
-                  <button type="button" className="link-button" onClick={()=>{setFilters(empty);setApplied(empty)}}>
-                    Limpiar filtros
-                  </button>
-                </div>
-                <div className="searches">
-                  {[['folio_interno','Arete interno','Ej. 79'],['siniiga_chip','Chip SINIIGA','484…'],['registro_uno','Registro UNO','Ej. 268309MM-RP']].map(([k,n,p])=>(
-                    <label key={k}>
-                      {n}
-                      <input placeholder={p} value={filters[k as keyof typeof empty]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/>
-                    </label>
-                  ))}
-                </div>
-                <div className="facets">
-                  <label>
-                    Sexo
-                    <select value={filters.sex} onChange={e=>setFilters({...filters,sex:e.target.value})}>
-                      <option value="">Todos</option>
-                      <option value="FEMALE">Hembra</option>
-                      <option value="MALE">Macho</option>
-                    </select>
-                  </label>
-                  <label>
-                    Etapa de vida
-                    <select value={filters.life_stage} onChange={e=>setFilters({...filters,life_stage:e.target.value})}>
-                      <option value="">Todas</option>
-                      {stages.map(x=><option key={x} value={x}>{label(x)}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    Estado reproductivo
-                    <select value={filters.reproductive_status} onChange={e=>setFilters({...filters,reproductive_status:e.target.value})}>
-                      <option value="">Todos</option>
-                      {repro.map(x=><option key={x} value={x}>{label(x)}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    Raza
-                    <input placeholder="Todas las razas" value={filters.breed} onChange={e=>setFilters({...filters,breed:e.target.value})}/>
-                  </label>
-                  <label>
-                    Estado
-                    <select value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}>
-                      <option value="">Todos</option>
-                      {states.map(x=><option key={x} value={x}>{label(x)}</option>)}
-                    </select>
-                  </label>
-                  <button type="submit" className="primary">Aplicar filtros</button>
-                </div>
-              </form>
-              <section className="table">
-                <div className="table-head">
-                  <b>Ejemplares</b>
-                  <span>{loading?'Actualizando…':animals.length+' registros'}</span>
-                  <small>{selectedRanch?selectedRanch.name:'Datos del rancho activo'}</small>
-                </div>
-                {error&&<p className="error table-error" role="alert">{error}</p>}
-                {!loading&&!error&&!animals.length?(
-                  <div className="empty">
-                    <h3>No encontramos ejemplares</h3>
-                    <p>Prueba con otros filtros o limpia la búsqueda actual.</p>
-                  </div>
-                ):(
-                  <div className="scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Arete interno</th>
-                          <th>Identificación oficial</th>
-                          <th>Sexo / Raza</th>
-                          <th>Etapa y reproducción</th>
-                          <th>Estado</th>
-                          <th>Reseña</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {animals.map(a=>(
-                          <tr key={a.id}>
-                            <td>
-                              <a className="animal-link" href={'#/inventario/'+encodeURIComponent(a.id)}>
-                                {a.folio_interno||'Sin arete'}
-                                <small>Nació {date(a.birth_date||a.fecha_nacimiento)}</small>
-                              </a>
-                            </td>
-                            <td>
-                              {a.siniiga_chip||a.chip_siniiga||'—'}
-                              <small>UNO · {a.registro_uno||'—'}</small>
-                            </td>
-                            <td>
-                              <span className={'sex'+(a.sex==='FEMALE'?' female':a.sex==='MALE'?' male':'')}>
-                                {a.sex==='FEMALE'?'♀ Hembra':a.sex==='MALE'?'♂ Macho':'Sin dato'}
-                              </span>
-                              <small>{a.breed||a.raza||'Raza sin especificar'}</small>
-                            </td>
-                            <td>
-                              {label(a.life_stage)}
-                              <small>{label(a.reproductive_status)}</small>
-                            </td>
-                            <td>
-                              <span className={'state '+String(a.status||'').toLowerCase()}>
-                                {label(a.status)}
-                              </span>
-                            </td>
-                            <td>
-                              <a className="open" aria-label="Abrir reseña" href={'#/inventario/'+encodeURIComponent(a.id)}>
-                                Ver →
-                              </a>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            </>
+            <InventoryView
+              username={s.username}
+              multiRanch={multi}
+              activeRanchId={activeRanchId}
+              ranchName={selectedRanch?.name}
+              ranchesLoading={ranchesQuery.isFetching}
+              ranchesError={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):''}
+              onRetryRanches={()=>{void ranchesQuery.refetch()}}
+            />
           )}
         </main>
       </div>
@@ -576,9 +440,12 @@ function PortalApp(){
 }
 
 function Certificate({a}:{a:Animal}){
-  const female=a.sex==='FEMALE',ms=list(a),photo=a.presigned_photo_url||a.photo_presigned_url||a.photo_url||a.photoUrl;
+  const female=a.sex==='FEMALE',ms=list(a),photo=a.photoUrl||a.presigned_photo_url||a.photo_presigned_url||a.photo_url;
+  const folio=a.folioInterno||a.folio_interno,chip=a.siniigaChip||a.siniiga_chip||a.chip_siniiga,uno=a.registroUno||a.registro_uno;
+  const birth=a.birthDate||a.birth_date||a.fecha_nacimiento,stage=a.lifeStage||a.life_stage,reproStatus=a.reproductiveStatus||a.reproductive_status;
+  const deathDate=a.mortalityDate||a.mortality_date||a.sale_date,deathCause=a.mortalityCause||a.mortality_cause||a.sale_cause||a.sale_reason,deathStage=a.lifeStageAtDeath||a.life_stage_at_death;
   const gRaw=ms
-    .map(m=>({w:kg(m),t:new Date(m.measured_at||m.fecha||'').getTime()}))
+    .map(m=>({w:kg(m),t:new Date(m.date||m.measured_at||m.fecha||'').getTime()}))
     .filter(x=>Number.isFinite(x.w)&&Number.isFinite(x.t))
     .sort((x,y)=>x.t-y.t);
   const g=gRaw.slice(1).reduce<number[]>((acc,m,i)=>{
@@ -587,19 +454,21 @@ function Certificate({a}:{a:Animal}){
     return acc;
   },[]);
   const milestones=['BIRTH','WEANING','DAY_120','DAY_150','EVALUATION'];
-  const sire=a.sire_name||a.padre_name||a.padre||a.sire;
+  const sire=a.sire_name||a.padre_name||a.padre||a.sire||a.externalSireFolio;
   const sireUno=a.sire_uno||a.folio_uno_padre||a.sire_folio||a.padre_folio;
-  const dam=a.dam_name||a.madre_name||a.madre||a.dam;
+  const dam=a.dam_name||a.madre_name||a.madre||a.dam||a.externalDamFolio;
   const damUno=a.dam_uno||a.folio_uno_madre||a.dam_folio||a.madre_folio;
-  const conception=a.conception_method||a.metodo_concepcion;
-  const birthType=a.birth_type||a.tipo_parto;
+  const conception=a.conceptionMethod||a.conception_method||a.metodo_concepcion;
+  const birthType=a.parturitionType||a.birth_type||a.tipo_parto;
   const hasGenealogy=Boolean(sire||sireUno||dam||damUno||conception||birthType);
+  const scrotalMeasure=ms.find(m=>m.scrotalCircumferenceCm!=null||m.scrotal_circumference_cm!=null||m.circunferencia_escrotal_cm!=null);
+  const scrotalVal=scrotalMeasure?(scrotalMeasure.scrotalCircumferenceCm??scrotalMeasure.scrotal_circumference_cm??scrotalMeasure.circunferencia_escrotal_cm):undefined;
 
   const getX=(i:number)=>g.length===1?300:(i*600)/Math.max(1,g.length-1);
   const getY=(v:number)=>120-((v-Math.min(...g,0))/(Math.max(...g,0.01)-Math.min(...g,0)||1))*100;
 
-  return <article className={'certificate '+(female?'pink':'blue')}><div className="cert-head"><div><small>BAAPP (OVIAPP) · REGISTRO DE REBAÑO</small><h1>Reseña individual</h1><p>Certificado oficial de identificación y seguimiento</p></div><div className="seal"><b>{female?'♀ HEMBRA':'♂ MACHO'}</b><small>{female?'HOJA ROSA':'HOJA AZUL'}</small></div></div>{a.status==='DECEASED'||a.status==='SOLD'?<div className="life-alert"><b>{label(a.status)} · Fecha {date(a.mortality_date||a.sale_date)}</b><span>Causa: {a.mortality_cause||a.sale_cause||a.sale_reason||'No especificada'} · Etapa: {label(a.status==='DECEASED'?a.life_stage_at_death:a.life_stage)}</span></div>:null}
-  <div className="cert-body"><div className="photo">{photo?<img src={photo} alt={'Fotografía de '+(a.folio_interno||'ejemplar')}/>:<span>◉<small>Fotografía de S3</small></span>}</div><div><small className="section-label">IDENTIFICACIÓN OFICIAL</small><div className="id-grid">{[['Folio Registro UNO',a.registro_uno],['Chip SINIIGA',a.siniiga_chip||a.chip_siniiga],['Arete interno',a.folio_interno],['ADN',a.adn],['Fecha de nacimiento',date(a.birth_date||a.fecha_nacimiento)],['Edad actual',age(a.birth_date||a.fecha_nacimiento)]].map(([k,v])=><div key={k}><small>{k}</small><b>{v||'—'}</b></div>)}</div><div className="owners"><div><small>Criador · rancho de nacimiento</small><b>{a.criador_name||'Sin dato'}</b></div><div><small>Propietario actual · dueño vigente</small><b>{a.owner_name||a.ranch_name||'Sin dato'}</b></div></div><div className="genealogy-block"><small className="section-label">GENEALOGÍA</small>{hasGenealogy?<div className="id-grid"><div><small>Semental</small><b>{sire||'—'}{sireUno?` (UNO: ${sireUno})`:''}</b></div><div><small>Madre (Vientre)</small><b>{dam||'—'}{damUno?` (UNO: ${damUno})`:''}</b></div>{conception&&<div><small>Concepción</small><b>{label(conception)}</b></div>}{birthType&&<div><small>Tipo de parto</small><b>{label(birthType)}</b></div>}</div>:<p className="muted genealogy-empty">Sin datos genealógicos registrados</p>}</div></div></div><div className="badges"><span>● {label(a.sex)}</span><span>◇ {a.breed||a.raza||'Raza sin especificar'}</span><span>◷ {label(a.life_stage)}</span><span>♡ {label(a.reproductive_status)}</span></div>
-  <section className="cert-section"><div className="section-title"><div><h2>Historial de pesajes</h2><small>Control de crecimiento por etapa</small></div><small>PESO · KG</small></div><div className="weights">{milestones.map(k=>{const m=ms.find(x=>hit(x)===k);return <div key={k}><small>{label(k)}</small><b>{m?kg(m).toFixed(1)+' kg':'—'}</b><small>{m?date(m.measured_at||m.fecha):'Sin registro'}</small></div>})}</div>{!female&&<p className="scrotal">♂ Circunferencia escrotal: <b>{ms.find(m=>m.scrotal_circumference_cm||m.circunferencia_escrotal_cm)?.scrotal_circumference_cm||ms.find(m=>m.circunferencia_escrotal_cm)?.circunferencia_escrotal_cm||'—'} cm</b></p>}</section>
-  <section className="cert-section"><div className="section-title"><div><h2>Ganancia diaria de peso</h2><small>GDP · kg por día entre pesajes</small></div></div>{g.length?<div className="chart"><svg viewBox="0 0 600 140" role="img" aria-label="Gráfica de ganancia diaria de peso"><path d="M0 20H600M0 70H600M0 120H600"/>{g.length>1&&<polyline points={g.map((v,i)=>`${getX(i)},${getY(v)}`).join(' ')}/>}{g.map((v,i)=><circle key={i} cx={getX(i)} cy={getY(v)} r="5" fill="var(--tone)"/>)}</svg><div>{g.map((v,i)=><small key={i}>{v.toFixed(3)} kg/día</small>)}</div></div>:<p className="muted">Se requieren dos pesajes con fecha para calcular la GDP.</p>}<div className="measurements"><div><b>Hito</b><b>Fecha</b><b>Peso</b><b>Circunferencia</b></div>{ms.map((m,i)=><div key={i}><span>{label(hit(m))}</span><span>{date(m.measured_at||m.fecha)}</span><span>{Number.isFinite(kg(m))?kg(m)+' kg':'—'}</span><span>{m.scrotal_circumference_cm||m.circunferencia_escrotal_cm?String(m.scrotal_circumference_cm||m.circunferencia_escrotal_cm)+' cm':'—'}</span></div>)}</div></section><footer>BAAPP (OVIAPP) · Trazabilidad ovina <span>Reseña del rancho activo</span></footer></article>
+  return <article className={'certificate '+(female?'pink':'blue')}><div className="cert-head"><div><small>BAAPP (OVIAPP) · REGISTRO DE REBAÑO</small><h1>Reseña individual</h1><p>Certificado oficial de identificación y seguimiento</p></div><div className="seal"><b>{female?'♀ HEMBRA':'♂ MACHO'}</b><small>{female?'HOJA ROSA':'HOJA AZUL'}</small></div></div>{a.status==='DECEASED'||a.status==='SOLD'?<div className="life-alert"><b>{label(a.status)} · Fecha {date(deathDate)}</b><span>Causa: {deathCause||'No especificada'} · Etapa: {label(a.status==='DECEASED'?deathStage:stage)}</span></div>:null}
+  <div className="cert-body"><div className="photo">{photo?<img src={photo} alt={'Fotografía de '+(folio||'ejemplar')}/>:<span>◉<small>Fotografía de S3</small></span>}</div><div><small className="section-label">IDENTIFICACIÓN OFICIAL</small><div className="id-grid">{[['Folio Registro UNO',uno],['Chip SINIIGA',chip],['Arete interno',folio],['ADN',a.adn],['Fecha de nacimiento',date(birth)],['Edad actual',age(birth)]].map(([k,v])=><div key={k}><small>{k}</small><b>{v||'—'}</b></div>)}</div><div className="owners"><div><small>Criador · rancho de nacimiento</small><b>{a.criador||a.criador_name||'Sin dato'}</b></div><div><small>Propietario actual · dueño vigente</small><b>{a.propietario||a.owner_name||a.ranch_name||'Sin dato'}</b></div></div><div className="genealogy-block"><small className="section-label">GENEALOGÍA</small>{hasGenealogy?<div className="id-grid"><div><small>Semental</small><b>{sire||'—'}{sireUno?` (UNO: ${sireUno})`:''}</b></div><div><small>Madre (Vientre)</small><b>{dam||'—'}{damUno?` (UNO: ${damUno})`:''}</b></div>{conception&&<div><small>Concepción</small><b>{label(conception)}</b></div>}{birthType&&<div><small>Tipo de parto</small><b>{label(birthType)}</b></div>}</div>:<p className="muted genealogy-empty">Sin datos genealógicos registrados</p>}</div></div></div><div className="badges"><span>● {label(a.sex)}</span><span>◇ {a.breed||a.raza||'Raza sin especificar'}</span><span>◷ {label(stage)}</span><span>♡ {label(reproStatus)}</span></div>
+  <section className="cert-section"><div className="section-title"><div><h2>Historial de pesajes</h2><small>Control de crecimiento por etapa</small></div><small>PESO · KG</small></div><div className="weights">{milestones.map(k=>{const m=ms.find(x=>hit(x)===k);return <div key={k}><small>{label(k)}</small><b>{m?kg(m).toFixed(1)+' kg':'—'}</b><small>{m?date(m.date||m.measured_at||m.fecha):'Sin registro'}</small></div>})}</div>{!female&&<p className="scrotal">♂ Circunferencia escrotal: <b>{scrotalVal!==undefined?scrotalVal:'—'} cm</b></p>}</section>
+  <section className="cert-section"><div className="section-title"><div><h2>Ganancia diaria de peso</h2><small>GDP · kg por día entre pesajes</small></div></div>{g.length?<div className="chart"><svg viewBox="0 0 600 140" role="img" aria-label="Gráfica de ganancia diaria de peso"><path d="M0 20H600M0 70H600M0 120H600"/>{g.length>1&&<polyline points={g.map((v,i)=>`${getX(i)},${getY(v)}`).join(' ')}/>}{g.map((v,i)=><circle key={i} cx={getX(i)} cy={getY(v)} r="5" fill="var(--tone)"/>)}</svg><div>{g.map((v,i)=><small key={i}>{v.toFixed(3)} kg/día</small>)}</div></div>:<p className="muted">Se requieren dos pesajes con fecha para calcular la GDP.</p>}<div className="measurements"><div><b>Hito</b><b>Fecha</b><b>Peso</b><b>Circunferencia</b></div>{ms.map((m,i)=>{const sc=m.scrotalCircumferenceCm??m.scrotal_circumference_cm??m.circunferencia_escrotal_cm;return <div key={i}><span>{label(hit(m))}</span><span>{date(m.date||m.measured_at||m.fecha)}</span><span>{Number.isFinite(kg(m))?kg(m)+' kg':'—'}</span><span>{sc!==undefined&&sc!==null?String(sc)+' cm':'—'}</span></div>})}</div></section><footer>BAAPP (OVIAPP) · Trazabilidad ovina <span>Reseña del rancho activo</span></footer></article>
 }
