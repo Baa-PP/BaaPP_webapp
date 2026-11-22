@@ -1,57 +1,125 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
+import { API_BASE_URL } from './api/config';
+import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
+
 type Animal={id:string;folio_interno?:string;siniiga_chip?:string;chip_siniiga?:string;registro_uno?:string;adn?:string;sex?:string;life_stage?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birth_date?:string;fecha_nacimiento?:string;criador_name?:string;owner_name?:string;ranch_name?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortality_date?:string;mortality_cause?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conception_method?:string;metodo_concepcion?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
 type Measure={milestone?:string;hito?:string;weight_kg?:number;peso_kg?:number;measured_at?:string;fecha?:string;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
-type Ranch={id?:string;ranchId?:string;name?:string};
 type Session={accessToken:string;refreshToken?:string;role:string;username:string;ranches:Ranch[];permissions?:Record<string,any>;activeRanchId?:string};
-const API=(import.meta.env.VITE_API_BASE_URL||'https://du6aq4me7fp0q.cloudfront.net/api/v1').replace(/\/$/,''),KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
+const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
 const names:Record<string,string>={FEMALE:'Hembra',MALE:'Macho',LAMB_LACTATING:'Cordero lactante',LAMB_FATTENING:'Cordero en engorda',EWE_REPLACEMENT:'Reemplazo',ADULT:'Adulto',EMPTY:'Vacía',PREGNANT:'Gestante',LACTATING:'Lactante',STUD_RAM:'Semental',ACTIVE:'Activo',SOLD:'Vendido',DECEASED:'Fallecido',BIRTH:'Nacimiento',WEANING:'Destete',DAY_120:'120 días',DAY_150:'150 días',EVALUATION:'Evaluación',MN:'Monta natural',IA:'Inseminación artificial',TE:'Transferencia de embriones',SIMPLE:'Parto simple',DOBLE:'Parto doble',TRIPLE:'Parto triple'};
 const stages=['LAMB_LACTATING','LAMB_FATTENING','EWE_REPLACEMENT','ADULT'],repro=['EMPTY','PREGNANT','LACTATING','STUD_RAM'],states=['ACTIVE','SOLD','DECEASED'];
 const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
-const read=():Session|null=>{try{return JSON.parse(sessionStorage.getItem(KEY)||'null')}catch{return null}}, payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
-const ranches=(p:any):Ranch[]=>{const d=data(p);return [p?.ranches,p?.accessibleRanches,p?.accessible_ranches,p?.data?.ranches,p?.data?.accessibleRanches,p?.data?.accessible_ranches,p?.data?.content,p?.content,Array.isArray(p?.data)?p.data:undefined,d?.ranches,d?.accessibleRanches,d?.accessible_ranches,d?.user?.ranches].find(Array.isArray)||[]};
+const payload=async(r:Response)=>{try{return await r.json()}catch{return {}}},rows=(p:any):Animal[]=>{const d=data(p);return Array.isArray(d)?d:(d.animals||d.content||d.items||d.results||[])};
 const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
 const qs=(f:Record<string,string>)=>{const q=new URLSearchParams();Object.entries(f).forEach(([k,v])=>v&&q.set(k,v));return q.size?'?'+q.toString():''};
 
-async function api(path:string,s:Session,onRefresh?:(n:Session)=>void){
-  const activeRanch=s.activeRanchId||s.ranches[0]?.id||s.ranches[0]?.ranchId;
-  const send=(t:string)=>fetch(API+path,{headers:{Accept:'application/json',Authorization:'Bearer '+t,...(activeRanch?{'X-Active-Ranch-Id':activeRanch}:{})}});
-  let r=await send(s.accessToken);
-  if(r.status===401&&s.refreshToken){
-    const x=await fetch(API+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken:s.refreshToken})});
-    if(!x.ok)throw Error('SESSION_EXPIRED');
-    const p=await payload(x);
-    const t=token(p);
-    if(!t)throw Error('SESSION_EXPIRED');
-    const stored=read();
-    if(!stored||stored.username!==s.username||stored.accessToken!==s.accessToken){
-      throw Error('SESSION_EXPIRED');
-    }
-    const d=data(p);
-    const newRefresh=String(d.refreshToken||d.refresh_token||'')||s.refreshToken;
-    const n:Session={...stored,accessToken:t,refreshToken:newRefresh};
-    sessionStorage.setItem(KEY,JSON.stringify(n));
-    if(onRefresh)onRefresh(n);
-    r=await send(t);
+function normalizeRanches(p:any):Ranch[]{
+  const d=data(p);
+  const raw=[
+    Array.isArray(p)?p:undefined,
+    p?.ranches,p?.accessibleRanches,p?.accessible_ranches,
+    p?.data?.ranches,p?.data?.accessibleRanches,p?.data?.accessible_ranches,
+    p?.data?.content,p?.content,
+    Array.isArray(p?.data)?p.data:undefined,
+    d?.ranches,d?.accessibleRanches,d?.accessible_ranches,d?.user?.ranches,
+    Array.isArray(d)?d:undefined,
+  ].find(Array.isArray)||[];
+  return raw
+    .map((item:any,idx:number)=>{
+      const id=String(item?.id??item?.ranchId??item?.ranch_id??'').trim();
+      if(!id)return null;
+      return {
+        id,
+        name:String(item?.name??item?.ranchName??item?.ranch_name??`Rancho ${idx+1}`),
+        address:item?.address??item?.domicilio,
+        owner_name:item?.owner??item?.owner_name??item?.ownerName??item?.propietario,
+        weaning_days_target:item?.weaningTargetDays??item?.weaning_days_target??item?.weaningDaysTarget,
+        last_sync_at:item?.lastSyncedAt??item?.last_sync_at??item?.lastSyncAt??item?.ultima_sincronizacion,
+      } as Ranch;
+    })
+    .filter((r:Ranch|null):r is Ranch=>r!==null);
+}
+
+function read():Session|null{
+  try{
+    const parsed=JSON.parse(sessionStorage.getItem(KEY)||'null');
+    if(!parsed||typeof parsed.accessToken!=='string')return null;
+    const normalizedRanches=normalizeRanches(parsed.ranches??parsed);
+    const activeRanchId=String(parsed.activeRanchId||normalizedRanches[0]?.id||'').trim()||undefined;
+    return {...parsed,ranches:normalizedRanches,activeRanchId};
+  }catch{
+    return null;
   }
-  if(r.status===401)throw Error('SESSION_EXPIRED');
-  return r;
+}
+
+function syncTokensToSessionStorage(session:Session,force=false){
+  if(force||!sessionStorage.getItem('jwt_token')){
+    sessionStorage.setItem('jwt_token',session.accessToken);
+  }
+  if(force){
+    if(session.refreshToken)sessionStorage.setItem('jwt_refresh_token',session.refreshToken);
+    else sessionStorage.removeItem('jwt_refresh_token');
+  }else if(session.refreshToken&&!sessionStorage.getItem('jwt_refresh_token')){
+    sessionStorage.setItem('jwt_refresh_token',session.refreshToken);
+  }
+}
+
+function mergeLatestTokens(base:Session,ranchId:string|undefined):Session{
+  const stored=read();
+  const latestAccess=sessionStorage.getItem('jwt_token')||stored?.accessToken||base.accessToken;
+  const latestRefresh=sessionStorage.getItem('jwt_refresh_token')||stored?.refreshToken||base.refreshToken;
+  return {
+    ...(stored&&stored.username===base.username?stored:base),
+    accessToken:latestAccess,
+    refreshToken:latestRefresh,
+    activeRanchId:ranchId,
+  };
 }
 
 export default function App(){
+  const {setActiveRanchId,setAvailableRanches}=useRanchContextStore();
   const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
   const [animalsState,setAnimalsState]=useState<{ranchId:string|null;rows:Animal[]}>({ranchId:null,rows:[]}),[animalState,setAnimalState]=useState<{ranchId:string|null;route:string;data:Animal|null}>({ranchId:null,route:'',data:null}),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const empty={folio_interno:'',siniiga_chip:'',registro_uno:'',sex:'',life_stage:'',reproductive_status:'',breed:'',status:''},[filters,setFilters]=useState(empty),[applied,setApplied]=useState(empty);
-  const activeRanchId=s?.activeRanchId||s?.ranches[0]?.id||s?.ranches[0]?.ranchId||'';
+  const activeRanchId=s?.activeRanchId||s?.ranches[0]?.id||'';
+  const canReadInventory=Boolean(s&&canInventory(s));
 
   useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
 
+  // Sync persisted session into sessionStorage (for apiFetch) and useRanchContextStore
   useEffect(()=>{
     setAnimalsState({ranchId:null,rows:[]});
     setAnimalState({ranchId:null,route:'',data:null});
+    if(!s){
+      setAvailableRanches([]);
+      setActiveRanchId(null);
+      return;
+    }
+    syncTokensToSessionStorage(s,false);
+    if(s.ranches.length>0)setAvailableRanches(s.ranches);
+    setActiveRanchId(activeRanchId||null);
   },[s?.username]);
+
+  // Keep React state synchronized when WEB-002 apiFetch refreshes or expires the session
+  useEffect(()=>{
+    const unsubCleared=onSessionCleared(()=>{
+      setAvailableRanches([]);
+      setS(null);
+      setPass('');
+      setShowPassword(false);
+      setAnimalsState({ranchId:null,rows:[]});
+      setAnimalState({ranchId:null,route:'',data:null});
+      if(location.hash!=='#/login')location.hash='/login';
+    });
+    const unsubRefreshed=onSessionRefreshed(({accessToken,refreshToken})=>{
+      setS(prev=>prev?{...prev,accessToken,refreshToken:refreshToken??prev.refreshToken}:null);
+    });
+    return()=>{unsubCleared();unsubRefreshed()};
+  },[setAvailableRanches]);
 
   useEffect(()=>{
     if(!s){
@@ -77,65 +145,67 @@ export default function App(){
     }
   },[s,url]);
 
+  // All authenticated requests go through apiFetch (WEB-002 + WEB-003) so concurrent 401s trigger only 1 refresh
   useEffect(()=>{
-    if(!s||!canInventory(s)||['login','sin-permisos','auditoria-nacimientos'].includes(url))return;
+    if(!s?.username||!canReadInventory||['login','sin-permisos','auditoria-nacimientos'].includes(url))return;
     let stop=false;setLoading(true);setError('');
     const detail=url.startsWith('inventario/'),path=detail?'/animals/'+encodeURIComponent(url.slice(11)):'/animals'+qs(applied);
     if(detail)setAnimalState(prev=>prev.ranchId===activeRanchId&&prev.route===url?prev:{ranchId:null,route:'',data:null});
     else setAnimalsState(prev=>prev.ranchId===activeRanchId?prev:{ranchId:null,rows:[]});
-    api(path,s,setS).then(async r=>{
-      if(!r.ok)throw Error('No pudimos cargar la información del rebaño.');
-      const p=await payload(r);
+    apiFetch<unknown>(path,{ranchId:activeRanchId||null}).then(p=>{
       if(stop)return;
       if(detail)setAnimalState({ranchId:activeRanchId,route:url,data:data(p).animal||data(p)});
       else setAnimalsState({ranchId:activeRanchId,rows:rows(p)});
     }).catch(e=>{
       if(stop)return;
-      if(e.message==='SESSION_EXPIRED'){
-        sessionStorage.removeItem(KEY);setS(null);setAnimalsState({ranchId:null,rows:[]});setAnimalState({ranchId:null,route:'',data:null});location.hash='/login';
-      }else setError(e.message||'Error al consultar el inventario.');
+      setError(e instanceof Error?e.message:'Error al consultar el inventario.');
     }).finally(()=>!stop&&setLoading(false));
     return()=>{stop=true};
-  },[s,url,applied,activeRanchId]);
+  },[s?.username,canReadInventory,url,applied,activeRanchId]);
 
   async function login(e:FormEvent){
     e.preventDefault();setBusy(true);setLoginErr('');
+    const startGen=getSessionGeneration();
     try{
-      const r=await fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
+      const r=await fetch(`${API_BASE_URL}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
       if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
       const d=data(p),t=token(p),u=d.user||{};
       if(!t)throw Error('El servidor no devolvió el token de acceso.');
+      if(getSessionGeneration()!==startGen)return;
       let role=String(u.role||d.role||'');
       try{if(!role)role=String(JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role||'')}catch{}
       role=role.toUpperCase().replace(/^ROLE_/,'');
-      const n:Session={accessToken:t,refreshToken:d.refreshToken||d.refresh_token,role,username:u.username||user.trim(),ranches:ranches(p),permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:u.ranchId||u.ranch_id||d.ranchId||d.ranch_id};
+      const initialRanches=normalizeRanches(p);
+      const n:Session={accessToken:t,refreshToken:String(d.refreshToken||d.refresh_token||'')||undefined,role,username:String(u.username||d.username||user.trim()),ranches:initialRanches,permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:String(u.ranchId||u.ranch_id||d.ranchId||d.ranch_id||'').trim()||undefined};
+      syncTokensToSessionStorage(n,true);
       if(AUDIT.includes(role)&&!n.ranches.length){
-        try{const rr=await fetch(API+'/ranches',{headers:{Authorization:'Bearer '+t}});if(rr.ok)n.ranches=ranches(await payload(rr))}catch{}
+        try{n.ranches=normalizeRanches(await apiFetch<unknown>('/ranches',{ranchId:null}))}catch{}
       }
-      if(n.ranches[0]&&!n.activeRanchId)n.activeRanchId=n.ranches[0].id||n.ranches[0].ranchId;
-      sessionStorage.setItem(KEY,JSON.stringify(n));
-      setS(n);setPass('');setShowPassword(false);
-      location.hash=canInventory(n)?'/inventario':'/sin-permisos';
+      if(getSessionGeneration()!==startGen)return;
+      if(n.ranches[0]&&!n.activeRanchId)n.activeRanchId=n.ranches[0].id;
+      const persisted=mergeLatestTokens(n,n.activeRanchId);
+      sessionStorage.setItem(KEY,JSON.stringify(persisted));
+      if(persisted.ranches.length>0)setAvailableRanches(persisted.ranches);
+      setActiveRanchId(persisted.activeRanchId||null);
+      setS(persisted);setPass('');setShowPassword(false);
+      location.hash=canInventory(persisted)?'/inventario':'/sin-permisos';
     }catch(e){
+      if(getSessionGeneration()!==startGen)return;
       setLoginErr(e instanceof Error?e.message:'No se pudo iniciar sesión.');
     }finally{setBusy(false)}
   }
 
   function logout(){
-    sessionStorage.removeItem(KEY);
-    setS(null);
-    setPass('');
-    setShowPassword(false);
-    setAnimalsState({ranchId:null,rows:[]});
-    setAnimalState({ranchId:null,route:'',data:null});
+    clearSession();
     setFilters(empty);
     setApplied(empty);
     location.hash='/login';
   }
 
   function selectRanch(id:string){
+    setActiveRanchId(id||null);
     if(s){
-      const n={...s,activeRanchId:id};
+      const n=mergeLatestTokens(s,id||undefined);
       setS(n);
       sessionStorage.setItem(KEY,JSON.stringify(n));
     }
@@ -252,7 +322,7 @@ export default function App(){
                 <span>Rancho activo</span>
                 <select value={activeRanchId} onChange={e=>selectRanch(e.target.value)}>
                   {s.ranches.map((r,i)=>(
-                    <option key={r.id||r.ranchId||i} value={r.id||r.ranchId}>
+                    <option key={r.id||i} value={r.id}>
                       {r.name||'Rancho '+(i+1)}
                     </option>
                   ))}
