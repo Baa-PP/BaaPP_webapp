@@ -1663,3 +1663,360 @@ td small,
     justify-content: space-between;
   }
 }
+
+/* --- WEB-015: Listado de partos y visor modal de foto de evidencia S3 --- */
+.births-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.births-view .title-row {
+  margin-bottom: 4px;
+}
+
+.births-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-card);
+  color: var(--accent-secondary-hover);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.births-notice-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--accent-secondary);
+  color: var(--surface-base);
+  font-size: 11px;
+  font-weight: 800;
+  margin-top: 1px;
+}
+
+.births-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.births-filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.births-filter-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.births-month-input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.births-month-input:focus {
+  border-color: var(--accent-secondary);
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -1px;
+}
+
+.births-filter-bar .link-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.births-summary-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.births-stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.births-stat-pill b {
+  color: var(--text-primary);
+}
+
+.births-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--semantic-danger-bg);
+  border: 1px solid var(--semantic-danger);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.births-error strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--semantic-danger);
+  font-size: 14px;
+}
+
+.births-error .error {
+  margin: 0;
+}
+
+.births-table th.num,
+.births-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.birth-row-locked {
+  background: #FFFBEB;
+}
+
+.birth-count-live {
+  color: var(--semantic-success);
+  font-weight: 700;
+}
+
+.birth-count-dead {
+  color: var(--semantic-danger);
+  font-weight: 700;
+}
+
+.birth-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.birth-badge-locked {
+  background: #FEF3C7;
+  color: var(--semantic-warning);
+  border: 1px solid #FDE68A;
+}
+
+.birth-badge-open {
+  background: #DCFCE7;
+  color: var(--semantic-success);
+  border: 1px solid #BBF7D0;
+}
+
+.birth-readonly-tag,
+.birth-audit-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.birth-readonly-tag {
+  font-style: italic;
+}
+
+.birth-thumb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--accent-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.birth-thumb-btn:hover {
+  background: var(--surface-support);
+  border-color: var(--accent-secondary);
+}
+
+.birth-thumb-img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  display: block;
+}
+
+.birth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.birth-modal-card {
+  width: 100%;
+  max-width: 760px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+}
+
+.birth-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+}
+
+.birth-modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.birth-modal-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.birth-modal-close {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.birth-modal-close:hover {
+  background: var(--surface-support);
+}
+
+.birth-modal-body {
+  padding: 16px 20px;
+  background: var(--surface-support);
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+}
+
+.birth-modal-img {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+}
+
+.birth-modal-fallback {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.birth-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+}
+
+.birth-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.birth-modal-counts {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.birth-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .births-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .birth-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .birth-modal-actions {
+    justify-content: flex-end;
+  }
+}
