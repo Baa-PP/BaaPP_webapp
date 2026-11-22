@@ -317,7 +317,7 @@ export function InventoryView({
     });
   }
 
-  const canQueryAnimals = !multiRanch || Boolean(activeRanchId);
+  const canQueryAnimals = Boolean(activeRanchId);
 
   const animalsQuery = useQuery({
     queryKey: ['animals', username, activeRanchId, applied, page, size] as const,
@@ -347,11 +347,13 @@ export function InventoryView({
     setPage(0);
   }
 
-  if (multiRanch && !activeRanchId) {
+  if (!activeRanchId) {
     if (ranchesLoading) {
       return (
         <section className="empty-panel">
-          <p className="muted">Cargando ranchos afiliados…</p>
+          <p className="muted">
+            {multiRanch ? 'Cargando ranchos afiliados…' : 'Cargando datos del rancho…'}
+          </p>
         </section>
       );
     }
@@ -380,7 +382,9 @@ export function InventoryView({
         <p className="eyebrow">Contexto de rancho</p>
         <h1>Sin rancho activo seleccionado</h1>
         <p className="intro">
-          Selecciona un rancho afiliado en la barra superior para consultar su inventario.
+          {multiRanch
+            ? 'Selecciona un rancho afiliado en la barra superior para consultar su inventario.'
+            : 'No se encontró un rancho activo asignado a tu cuenta.'}
         </p>
       </section>
     );
@@ -572,7 +576,7 @@ export function InventoryView({
           </div>
         )}
 
-        {animalsQuery.isLoading && animals.length === 0 ? (
+        {loading && animals.length === 0 ? (
           <div className="empty">
             <p className="muted">Cargando inventario del rancho activo…</p>
           </div>
@@ -604,7 +608,7 @@ export function InventoryView({
               </button>
             ) : null}
           </div>
-        ) : (
+        ) : animals.length > 0 ? (
           <>
             <div className="scroll">
               <table>
@@ -738,7 +742,7 @@ export function InventoryView({
               </div>
             )}
           </>
-        )}
+        ) : null}
       </section>
     </>
   );
