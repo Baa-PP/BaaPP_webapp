@@ -1166,6 +1166,134 @@ td small,
   font-weight: 600;
 }
 
+/* --- Ranch Profile Form (WEB-007 / RF-WEB-03) --- */
+.ranch-profile {
+  max-width: 760px;
+}
+
+.ranch-form-card {
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.ranch-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  background: var(--surface-support);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.ranch-form-head span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ranch-form-body {
+  padding: 24px;
+}
+
+.ranch-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.field-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.weaning-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.weaning-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.weaning-option:hover {
+  border-color: var(--brand-primary);
+  background: var(--surface-support);
+}
+
+.weaning-option:focus-visible {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: 2px;
+}
+
+.weaning-option strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.weaning-option span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.weaning-option.active {
+  border-color: var(--brand-primary);
+  border-width: 2px;
+  padding: 11px 13px;
+  background: #F0FDF4;
+  color: var(--brand-primary);
+}
+
+.weaning-option.active span {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.success-banner {
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  color: var(--semantic-success);
+  background: #F0FDF4;
+  border: 1px solid var(--semantic-success);
+  border-left-width: 4px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.ranch-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.save-button {
+  height: 40px;
+  padding: 0 18px;
+  font-size: 13px;
+}
+
 @media (max-width: 1000px) {
   .facets {
     grid-template-columns: repeat(3, 1fr);
@@ -1243,5 +1371,21 @@ td small,
 
   .weights > div:last-child {
     grid-column: span 2;
+  }
+
+  .ranch-form-head,
+  .ranch-form-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .ranch-form-grid,
+  .weaning-options {
+    grid-template-columns: 1fr;
+  }
+
+  .ranch-form-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
   }
 }

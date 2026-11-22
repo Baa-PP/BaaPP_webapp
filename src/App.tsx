@@ -2,12 +2,13 @@ import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
 import { API_BASE_URL } from './api/config';
+import { RanchProfileForm } from './features/ranch/RanchProfileForm';
 import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
 
 type Animal={id:string;folio_interno?:string;siniiga_chip?:string;chip_siniiga?:string;registro_uno?:string;adn?:string;sex?:string;life_stage?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birth_date?:string;fecha_nacimiento?:string;criador_name?:string;owner_name?:string;ranch_name?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortality_date?:string;mortality_cause?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conception_method?:string;metodo_concepcion?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
 type Measure={milestone?:string;hito?:string;weight_kg?:number;peso_kg?:number;measured_at?:string;fecha?:string;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
 type Session={accessToken:string;refreshToken?:string;role:string;username:string;ranches:Ranch[];permissions?:Record<string,any>;activeRanchId?:string};
-const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
+const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'],RANCH_EDIT_ROLES=['OWNER','ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
 const names:Record<string,string>={FEMALE:'Hembra',MALE:'Macho',LAMB_LACTATING:'Cordero lactante',LAMB_FATTENING:'Cordero en engorda',EWE_REPLACEMENT:'Reemplazo',ADULT:'Adulto',EMPTY:'Vacía',PREGNANT:'Gestante',LACTATING:'Lactante',STUD_RAM:'Semental',ACTIVE:'Activo',SOLD:'Vendido',DECEASED:'Fallecido',BIRTH:'Nacimiento',WEANING:'Destete',DAY_120:'120 días',DAY_150:'150 días',EVALUATION:'Evaluación',MN:'Monta natural',IA:'Inseminación artificial',TE:'Transferencia de embriones',SIMPLE:'Parto simple',DOBLE:'Parto doble',TRIPLE:'Parto triple'};
 const stages=['LAMB_LACTATING','LAMB_FATTENING','EWE_REPLACEMENT','ADULT'],repro=['EMPTY','PREGNANT','LACTATING','STUD_RAM'],states=['ACTIVE','SOLD','DECEASED'];
 const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
@@ -17,6 +18,7 @@ const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=ne
 const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
+const canEditRanch=(s:Session)=>RANCH_EDIT_ROLES.includes(s.role);
 const list=(a:Animal)=>a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weight_kg??m.peso_kg);
 const qs=(f:Record<string,string>)=>{const q=new URLSearchParams();Object.entries(f).forEach(([k,v])=>v&&q.set(k,v));return q.size?'?'+q.toString():''};
 
@@ -164,8 +166,12 @@ function PortalApp(){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
     }
+    if(url==='rancho'&&!canEditRanch(s)){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='rancho';
     if(!isKnown){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
@@ -176,9 +182,10 @@ function PortalApp(){
   },[s,url]);
 
   const multi=Boolean(s&&AUDIT.includes(s.role));
+  const canEdit=Boolean(s&&canEditRanch(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','rancho'].includes(url));
 
   // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
@@ -227,6 +234,22 @@ function PortalApp(){
     }
     // WEB-005: invalidate all queries so every view refreshes for the new ranch without re-login
     qc.invalidateQueries();
+  }
+
+  function handleRanchSaved(updated:Ranch){
+    const {availableRanches:currentList,activeRanchId:currentActiveId}=useRanchContextStore.getState();
+    const exists=currentList.some(r=>r.id===updated.id);
+    const nextList=exists
+      ?currentList.map(r=>r.id===updated.id?{...r,...updated}:r)
+      :[...currentList,updated];
+    setAvailableRanches(nextList);
+    if(s){
+      const merged=mergeLatestTokens(s,currentActiveId??updated.id);
+      const nextSession:Session={...merged,ranches:nextList};
+      setS(nextSession);
+      sessionStorage.setItem(KEY,JSON.stringify(nextSession));
+    }
+    qc.invalidateQueries({queryKey:['ranches']});
   }
 
   async function login(e:FormEvent){
@@ -352,7 +375,7 @@ function PortalApp(){
   const animal=animalQuery.data??null;
   const loading=detail?animalQuery.isFetching:animalsQuery.isFetching;
   const error=detail?(animalQuery.error instanceof Error?animalQuery.error.message:''):(animalsQuery.error instanceof Error?animalsQuery.error.message:'');
-  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -364,8 +387,13 @@ function PortalApp(){
         <nav className="sidebar-nav" aria-label="Navegación principal">
           <p className="sidebar-label">Módulos</p>
           {show&&(
-            <a className={!detail&&url!=='auditoria-nacimientos'?'nav-link active':'nav-link'} href="#/inventario">
+            <a className={url==='inventario'||detail?'nav-link active':'nav-link'} href="#/inventario">
               Inventario y Reseña
+            </a>
+          )}
+          {canEdit&&(
+            <a className={url==='rancho'?'nav-link active':'nav-link'} href="#/rancho">
+              Perfil del rancho
             </a>
           )}
           {AUDIT.includes(s.role)&&(
@@ -447,6 +475,14 @@ function PortalApp(){
               <h1>Sin módulos habilitados</h1>
               <p className="intro">Tu cuenta no tiene permisos habilitados para consultar módulos del portal web.</p>
             </section>
+          ):url==='rancho'&&canEdit?(
+            <RanchProfileForm
+              ranch={selectedRanch}
+              loading={ranchesQuery.isFetching}
+              error={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudo cargar el perfil del rancho.'):''}
+              onRetry={()=>{void ranchesQuery.refetch()}}
+              onSaved={handleRanchSaved}
+            />
           ):url==='auditoria-nacimientos'?(
             <section className="empty-panel">
               <p className="eyebrow">Acceso por rol</p>
