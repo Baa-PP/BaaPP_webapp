@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../api/client';
 import { RanchContextNotice } from '../../components/RanchContextNotice';
@@ -16,6 +17,7 @@ export interface BirthRecord {
   registeredLambsCount: number | null;
   evidencePhotoUrl?: string;
   evidencePhotoS3Key?: string;
+  serverLocked: boolean;
   isLocked: boolean;
   daysElapsed: number | null;
   parturitionType?: string;
@@ -36,6 +38,39 @@ export interface BirthsViewProps {
 const AUDIT_ROLES = new Set(['ASSOCIATION_SUPERUSER', 'VET_TECHNICIAN']);
 const LOCK_THRESHOLD_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
+const DIALOG_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
+function getLocalDateKey(now: Date = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateKey(dateKey: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function getDialogFocusables(container: HTMLElement | null): HTMLElement[] {
+  if (!container) return [];
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)
+  ).filter(
+    (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true'
+  );
+}
 
 function toNonEmptyString(...values: unknown[]): string | undefined {
   for (const v of values) {
@@ -80,16 +115,16 @@ function sanitizePhotoUrl(raw?: string): string | undefined {
   return undefined;
 }
 
-function computeDaysElapsed(birthDate?: string): number | null {
+function computeDaysElapsed(
+  birthDate?: string,
+  referenceDateKey?: string
+): number | null {
   if (!birthDate) return null;
   const trimmed = birthDate.trim();
   if (!trimmed) return null;
 
-  const now = new Date();
-  const todayMidnight = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate()
+  const todayMidnight = parseLocalDateKey(
+    referenceDateKey ?? getLocalDateKey()
   );
 
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
@@ -282,10 +317,13 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
     obj.is_blocked === true ||
     obj.bloqueado === true;
 
-  const isLocked =
+  const serverLocked =
     explicitLocked ||
     rawStatus === 'LOCKED' ||
-    rawStatus === 'BLOQUEADO' ||
+    rawStatus === 'BLOQUEADO';
+
+  const isLocked =
+    serverLocked ||
     (daysElapsed !== null && daysElapsed > LOCK_THRESHOLD_DAYS);
 
   return {
@@ -301,6 +339,7 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
     registeredLambsCount,
     evidencePhotoUrl,
     evidencePhotoS3Key,
+    serverLocked,
     isLocked,
     daysElapsed,
     parturitionType: toNonEmptyString(
@@ -349,54 +388,84 @@ export function BirthsView({
   onRetryRanches,
 }: BirthsViewProps) {
   const [monthFilter, setMonthFilter] = useState<string>('');
-  const [selectedEvidence, setSelectedEvidence] = useState<BirthRecord | null>(null);
+  const [localDateKey, setLocalDateKey] = useState<string>(() => getLocalDateKey());
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [modalImgError, setModalImgError] = useState<boolean>(false);
 
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const wasModalOpenRef = useRef<boolean>(false);
 
   const isAuditRole = AUDIT_ROLES.has(userRole);
   const isOwner = userRole === 'OWNER';
 
+  // Recompute age-derived daysElapsed and lock status whenever the local calendar day rolls over
+  useEffect(() => {
+    let timeoutId: number | undefined;
+
+    const syncLocalDate = () => {
+      const nextKey = getLocalDateKey();
+      setLocalDateKey((prev) => (prev === nextKey ? prev : nextKey));
+    };
+
+    const scheduleMidnightRollover = () => {
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+      const now = new Date();
+      const nextMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1
+      );
+      const delay = Math.max(1_000, nextMidnight.getTime() - now.getTime() + 50);
+      timeoutId = window.setTimeout(() => {
+        syncLocalDate();
+        scheduleMidnightRollover();
+      }, delay);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncLocalDate();
+      }
+    };
+
+    scheduleMidnightRollover();
+    window.addEventListener('focus', syncLocalDate);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+      window.removeEventListener('focus', syncLocalDate);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Reset modal selection when switching ranch or month filter
   useEffect(() => {
-    setSelectedEvidence(null);
+    setSelectedEvidenceId(null);
     setModalImgError(false);
     lastTriggerRef.current = null;
   }, [activeRanchId, monthFilter]);
 
   useEffect(() => {
     setModalImgError(false);
-  }, [selectedEvidence]);
+  }, [selectedEvidenceId]);
 
   function openEvidenceModal(birth: BirthRecord, triggerEl: HTMLButtonElement | null) {
     lastTriggerRef.current = triggerEl;
     setModalImgError(false);
-    setSelectedEvidence(birth);
+    setSelectedEvidenceId(birth.id);
   }
 
   function closeEvidenceModal() {
-    setSelectedEvidence(null);
-    const trigger = lastTriggerRef.current;
-    lastTriggerRef.current = null;
-    if (trigger && trigger.isConnected) {
-      requestAnimationFrame(() => trigger.focus());
-    }
+    setSelectedEvidenceId(null);
   }
-
-  useEffect(() => {
-    if (!selectedEvidence) return;
-    closeButtonRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeEvidenceModal();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedEvidence]);
 
   const birthsQuery = useQuery({
     queryKey: ['births', username, activeRanchId, monthFilter] as const,
@@ -412,6 +481,128 @@ export function BirthsView({
     enabled: Boolean(activeRanchId),
   });
 
+  const allBirths = (birthsQuery.data ?? []).map((birth) => {
+    const daysElapsed = computeDaysElapsed(birth.birthDate, localDateKey);
+    const isLocked =
+      birth.serverLocked ||
+      (daysElapsed !== null && daysElapsed > LOCK_THRESHOLD_DAYS);
+    if (birth.daysElapsed === daysElapsed && birth.isLocked === isLocked) {
+      return birth;
+    }
+    return { ...birth, daysElapsed, isLocked };
+  });
+
+  const selectedEvidence =
+    activeRanchId && selectedEvidenceId
+      ? allBirths.find((b) => b.id === selectedEvidenceId) ?? null
+      : null;
+  const activeEvidenceId = selectedEvidence?.id ?? null;
+
+  useEffect(() => {
+    if (!activeEvidenceId) {
+      if (wasModalOpenRef.current) {
+        wasModalOpenRef.current = false;
+        const trigger = lastTriggerRef.current;
+        lastTriggerRef.current = null;
+        if (trigger && trigger.isConnected) {
+          trigger.focus();
+        }
+      }
+      return;
+    }
+
+    wasModalOpenRef.current = true;
+
+    const backdropEl = backdropRef.current;
+    const savedBackground: Array<{
+      el: HTMLElement;
+      prevInert: boolean;
+      prevAriaHidden: string | null;
+    }> = [];
+
+    for (const child of Array.from(document.body.children)) {
+      if (
+        child instanceof HTMLElement &&
+        child !== backdropEl &&
+        !child.contains(backdropEl) &&
+        child.tagName !== 'SCRIPT' &&
+        child.tagName !== 'STYLE'
+      ) {
+        savedBackground.push({
+          el: child,
+          prevInert: child.inert,
+          prevAriaHidden: child.getAttribute('aria-hidden'),
+        });
+        child.inert = true;
+        if (child.getAttribute('aria-hidden') === null) {
+          child.setAttribute('aria-hidden', 'true');
+        }
+      }
+    }
+
+    (closeButtonRef.current ?? dialogRef.current)?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeEvidenceModal();
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        const container = dialogRef.current;
+        const focusables = getDialogFocusables(container);
+        if (focusables.length === 0) {
+          event.preventDefault();
+          container?.focus();
+          return;
+        }
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        const inside = Boolean(active && container?.contains(active));
+
+        if (event.shiftKey) {
+          if (!inside || active === first || active === container) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (!inside || active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const container = dialogRef.current;
+      if (
+        container &&
+        event.target instanceof Node &&
+        !container.contains(event.target)
+      ) {
+        const focusables = getDialogFocusables(container);
+        (focusables[0] ?? container).focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('focusin', handleFocusIn);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      for (const item of savedBackground) {
+        item.el.inert = Boolean(item.prevInert);
+        if (item.prevAriaHidden === null) {
+          item.el.removeAttribute('aria-hidden');
+        } else {
+          item.el.setAttribute('aria-hidden', item.prevAriaHidden);
+        }
+      }
+    };
+  }, [activeEvidenceId]);
+
   if (!activeRanchId) {
     return (
       <RanchContextNotice
@@ -425,7 +616,6 @@ export function BirthsView({
     );
   }
 
-  const allBirths = birthsQuery.data ?? [];
   const filteredBirths = monthFilter
     ? allBirths.filter((b) => extractYearMonth(b.birthDate) === monthFilter)
     : allBirths;
@@ -690,107 +880,112 @@ export function BirthsView({
         </section>
       )}
 
-      {selectedEvidence && (
-        <div
-          className="birth-modal-backdrop"
-          onClick={closeEvidenceModal}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="birth-evidence-modal-title"
-        >
+      {selectedEvidence &&
+        createPortal(
           <div
-            className="birth-modal-card"
-            onClick={(e) => e.stopPropagation()}
+            ref={backdropRef}
+            className="birth-modal-backdrop"
+            onClick={closeEvidenceModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="birth-evidence-modal-title"
           >
-            <div className="birth-modal-header">
-              <div>
-                <h2 id="birth-evidence-modal-title">
-                  Evidencia fotográfica de parto
-                </h2>
-                <p className="birth-modal-subtitle">
-                  Madre: <b>{selectedEvidence.damLabel}</b> · Padre:{' '}
-                  <b>{selectedEvidence.sireLabel}</b> · Fecha:{' '}
-                  {formatDate(selectedEvidence.birthDate)}
-                </p>
-              </div>
-              <button
-                ref={closeButtonRef}
-                type="button"
-                className="birth-modal-close"
-                onClick={closeEvidenceModal}
-                aria-label="Cerrar visor"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="birth-modal-body">
-              {selectedEvidence.evidencePhotoUrl && !modalImgError ? (
-                <img
-                  src={selectedEvidence.evidencePhotoUrl}
-                  alt={`Fotografía de evidencia S3 del parto de ${selectedEvidence.damLabel}`}
-                  className="birth-modal-img"
-                  onError={() => setModalImgError(true)}
-                />
-              ) : (
-                <div className="birth-modal-fallback" role="status">
-                  <p>
-                    No fue posible cargar la vista previa de la fotografía desde S3.
+            <div
+              ref={dialogRef}
+              className="birth-modal-card"
+              tabIndex={-1}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="birth-modal-header">
+                <div>
+                  <h2 id="birth-evidence-modal-title">
+                    Evidencia fotográfica de parto
+                  </h2>
+                  <p className="birth-modal-subtitle">
+                    Madre: <b>{selectedEvidence.damLabel}</b> · Padre:{' '}
+                    <b>{selectedEvidence.sireLabel}</b> · Fecha:{' '}
+                    {formatDate(selectedEvidence.birthDate)}
                   </p>
-                  {selectedEvidence.evidencePhotoS3Key && (
-                    <small className="muted">
-                      Clave S3: {selectedEvidence.evidencePhotoS3Key}
-                    </small>
-                  )}
                 </div>
-              )}
-            </div>
-
-            <div className="birth-modal-footer">
-              <div className="birth-modal-meta">
-                {selectedEvidence.isLocked ? (
-                  <span className="birth-badge birth-badge-locked">
-                    Bloqueado (&gt;30 días)
-                  </span>
-                ) : (
-                  <span className="birth-badge birth-badge-open">
-                    En ventana (≤30 días)
-                  </span>
-                )}
-                <span className="birth-modal-counts">
-                  Vivos: <b>{selectedEvidence.liveBornCount}</b> · Muertos:{' '}
-                  <b>{selectedEvidence.stillbornCount}</b> · Crías registradas:{' '}
-                  <b>
-                    {selectedEvidence.registeredLambsCount !== null
-                      ? selectedEvidence.registeredLambsCount
-                      : '—'}
-                  </b>
-                </span>
-              </div>
-
-              <div className="birth-modal-actions">
-                {selectedEvidence.evidencePhotoUrl && (
-                  <a
-                    href={selectedEvidence.evidencePhotoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="link-button"
-                  >
-                    Abrir original
-                  </a>
-                )}
                 <button
+                  ref={closeButtonRef}
                   type="button"
-                  className="secondary-button"
+                  className="birth-modal-close"
                   onClick={closeEvidenceModal}
+                  aria-label="Cerrar visor"
                 >
-                  Cerrar visor
+                  ✕
                 </button>
               </div>
+
+              <div className="birth-modal-body">
+                {selectedEvidence.evidencePhotoUrl && !modalImgError ? (
+                  <img
+                    src={selectedEvidence.evidencePhotoUrl}
+                    alt={`Fotografía de evidencia S3 del parto de ${selectedEvidence.damLabel}`}
+                    className="birth-modal-img"
+                    onError={() => setModalImgError(true)}
+                  />
+                ) : (
+                  <div className="birth-modal-fallback" role="status">
+                    <p>
+                      No fue posible cargar la vista previa de la fotografía desde S3.
+                    </p>
+                    {selectedEvidence.evidencePhotoS3Key && (
+                      <small className="muted">
+                        Clave S3: {selectedEvidence.evidencePhotoS3Key}
+                      </small>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="birth-modal-footer">
+                <div className="birth-modal-meta">
+                  {selectedEvidence.isLocked ? (
+                    <span className="birth-badge birth-badge-locked">
+                      Bloqueado (&gt;30 días)
+                    </span>
+                  ) : (
+                    <span className="birth-badge birth-badge-open">
+                      En ventana (≤30 días)
+                    </span>
+                  )}
+                  <span className="birth-modal-counts">
+                    Vivos: <b>{selectedEvidence.liveBornCount}</b> · Muertos:{' '}
+                    <b>{selectedEvidence.stillbornCount}</b> · Crías registradas:{' '}
+                    <b>
+                      {selectedEvidence.registeredLambsCount !== null
+                        ? selectedEvidence.registeredLambsCount
+                        : '—'}
+                    </b>
+                  </span>
+                </div>
+
+                <div className="birth-modal-actions">
+                  {selectedEvidence.evidencePhotoUrl && (
+                    <a
+                      href={selectedEvidence.evidencePhotoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="link-button"
+                    >
+                      Abrir original
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={closeEvidenceModal}
+                  >
+                    Cerrar visor
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
