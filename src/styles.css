@@ -1663,3 +1663,164 @@ td small,
     justify-content: space-between;
   }
 }
+
+/* --- WEB-021: Indicadores reproductivos (Apache ECharts) --- */
+.analytics-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.analytics-view .title-row {
+  margin-bottom: 0;
+}
+
+.analytics-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--semantic-danger-bg);
+  border: 1px solid var(--semantic-danger);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.analytics-error strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--semantic-danger);
+  font-size: 14px;
+}
+
+.analytics-error .error {
+  margin: 0;
+}
+
+.analytics-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.analytics-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.analytics-kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.analytics-kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-kpi-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.analytics-chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+
+.analytics-chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+.analytics-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.analytics-chart-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.analytics-chart-head p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-chart-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-control);
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  color: var(--brand-primary);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.echart-canvas {
+  width: 100%;
+  min-height: 260px;
+}
+
+.analytics-table th.num,
+.analytics-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-num-strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+@media (max-width: 1000px) {
+  .analytics-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analytics-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}

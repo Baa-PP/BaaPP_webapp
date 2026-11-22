@@ -4,6 +4,7 @@ interface RanchContextNoticeProps {
   loading: boolean;
   error?: string;
   onRetry?: () => void;
+  contextLabel?: string;
 }
 
 /**
@@ -16,6 +17,7 @@ export function RanchContextNotice({
   loading,
   error,
   onRetry,
+  contextLabel = 'su inventario',
 }: RanchContextNoticeProps) {
   const loadingMessage = multiRanch
     ? 'Cargando ranchos afiliados…'
@@ -50,7 +52,7 @@ export function RanchContextNotice({
           <h1>Sin rancho activo seleccionado</h1>
           <p className="intro">
             {multiRanch
-              ? 'Selecciona un rancho afiliado en la barra superior para consultar su inventario.'
+              ? `Selecciona un rancho afiliado en la barra superior para consultar ${contextLabel}.`
               : 'No se encontró un rancho activo asignado a tu cuenta.'}
           </p>
         </>
