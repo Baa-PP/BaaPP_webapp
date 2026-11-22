@@ -1,22 +1,26 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch, clearSession, onSessionCleared } from './api/client';
+import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
 import { API_BASE_URL } from './api/config';
 import { InventoryView } from './features/inventory/InventoryView';
+import { RanchProfileForm } from './features/ranch/RanchProfileForm';
+import { WorkerManagement } from './features/workers/WorkerManagement';
 import { useRanchContextStore, type Ranch } from './store/useRanchContextStore';
 
 type Animal={id:string;folioInterno?:string;folio_interno?:string;siniigaChip?:string;siniiga_chip?:string;chip_siniiga?:string;registroUno?:string;registro_uno?:string;adn?:string;sex?:string;lifeStage?:string;life_stage?:string;reproductiveStatus?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birthDate?:string;birth_date?:string;fecha_nacimiento?:string;criador?:string;criador_name?:string;propietario?:string;owner_name?:string;ranch_name?:string;photoUrl?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortalityDate?:string;mortality_date?:string;mortalityCause?:string;mortality_cause?:string;lifeStageAtDeath?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;weights?:Measure[];measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;externalSireFolio?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;externalDamFolio?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conceptionMethod?:string;conception_method?:string;metodo_concepcion?:string;parturitionType?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
 type Measure={milestone?:string;hito?:string;weightKg?:number;weight_kg?:number;peso_kg?:number;date?:string;measured_at?:string;fecha?:string;scrotalCircumferenceCm?:number;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
 type Session={accessToken:string;refreshToken?:string;role:string;username:string;ranches:Ranch[];permissions?:Record<string,any>;activeRanchId?:string};
-
-const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
+const KEY='baapp.session',AUDIT=['ASSOCIATION_SUPERUSER','VET_TECHNICIAN'],RANCH_EDIT_ROLES=['OWNER','ASSOCIATION_SUPERUSER','VET_TECHNICIAN'];
 const names:Record<string,string>={FEMALE:'Hembra',MALE:'Macho',LAMB_LACTATING:'Cordero lactante',LAMB_FATTENING:'Cordero en engorda',EWE_REPLACEMENT:'Reemplazo',ADULT:'Adulto',EMPTY:'Vacía',PREGNANT:'Gestante',LACTATING:'Lactante',STUD_RAM:'Semental',ACTIVE:'Activo',SOLD:'Vendido',DECEASED:'Fallecido',BIRTH:'Nacimiento',WEANING:'Destete',DAY_120:'120 días',DAY_150:'150 días',EVALUATION:'Evaluación',MN:'Monta natural',IA:'Inseminación artificial',TE:'Transferencia de embriones',SIMPLE:'Parto simple',DOBLE:'Parto doble',TRIPLE:'Parto triple'};
 const label=(x?:string)=>x?names[x]||x.replace(/_/g,' ').toLowerCase():'—',data=(p:any)=>p?.data??p,token=(p:any)=>String(data(p).accessToken||data(p).access_token||data(p).token||data(p).jwt||'');
-const read=():Session|null=>{try{const raw=JSON.parse(sessionStorage.getItem(KEY)||'null');if(!raw||typeof raw!=='object')return null;return {...raw,ranches:normalizeRanches(raw.ranches??raw)} as Session}catch{return null}}, payload=async(r:Response)=>{try{return await r.json()}catch{return {}}};
+const payload=async(r:Response)=>{try{return await r.json()}catch{return {}}};
 const route=()=>location.hash.replace(/^#\/?/,'')||'inventario',date=(s?:string)=>{if(!s)return '—';const d=new Date(s+(s.length===10?'T00:00:00':''));return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric'}).format(d)};
 const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=new Date(s);return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
+const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const age=(s?:string)=>{if(!s)return '—';const b=new Date(s+'T00:00:00');if(isNaN(b.getTime()))return '—';const n=new Date();let m=(n.getFullYear()-b.getFullYear())*12+n.getMonth()-b.getMonth(),a=new Date(b);a.setMonth(b.getMonth()+m);if(n<a)m--;a=new Date(b);a.setMonth(b.getMonth()+m);return m+' meses, '+Math.max(0,Math.floor((n.getTime()-a.getTime())/86400000))+' días'};
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
+const canEditRanch=(s:Session)=>RANCH_EDIT_ROLES.includes(s.role);
+const canManageWorkers=(s:Session)=>s.role==='OWNER';
 const list=(a:Animal)=>a.weights||a.measurements||a.weight_measurements||a.pesajes||[],hit=(m:Measure)=>String(m.milestone||m.hito||'').toUpperCase(),kg=(m:Measure)=>Number(m.weightKg??m.weight_kg??m.peso_kg);
 
 function normalizeRanches(p:any):Ranch[]{
@@ -46,6 +50,17 @@ function normalizeRanches(p:any):Ranch[]{
     .filter((r:Ranch|null):r is Ranch=>r!==null);
 }
 
+function read():Session|null{
+  try{
+    const parsed=JSON.parse(sessionStorage.getItem(KEY)||'null');
+    if(!parsed||typeof parsed.accessToken!=='string')return null;
+    const normalizedRanches=normalizeRanches(parsed.ranches??parsed);
+    const activeRanchId=String(parsed.activeRanchId||normalizedRanches[0]?.id||'').trim()||undefined;
+    return {...parsed,ranches:normalizedRanches,activeRanchId};
+  }catch{
+    return null;
+  }
+}
 function syncTokensToSessionStorage(session:Session,force=false){
   if(force||!sessionStorage.getItem('jwt_token')){
     sessionStorage.setItem('jwt_token',session.accessToken);
@@ -120,6 +135,21 @@ function PortalApp(){
     sessionStorage.setItem(KEY,JSON.stringify(updated));
   },[activeRanchId,s]);
 
+  // Keep React state synchronized when WEB-002 apiFetch refreshes or expires the session
+  useEffect(()=>{
+    const unsubCleared=onSessionCleared(()=>{
+      setAvailableRanches([]);
+      qc.clear();
+      setS(null);
+      setPass('');
+      setShowPassword(false);
+      if(location.hash!=='#/login')location.hash='/login';
+    });
+    const unsubRefreshed=onSessionRefreshed(({accessToken,refreshToken})=>{
+      setS(prev=>prev?{...prev,accessToken,refreshToken:refreshToken??prev.refreshToken}:null);
+    });
+    return()=>{unsubCleared();unsubRefreshed()};
+  },[qc,setAvailableRanches]);
   // Route guard (WEB-004)
   useEffect(()=>{
     if(!s){
@@ -134,8 +164,16 @@ function PortalApp(){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
     }
+    if(url==='rancho'&&!canEditRanch(s)){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
+    if(url==='cuentas-rama'&&!canManageWorkers(s)){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='rancho'||url==='cuentas-rama';
     if(!isKnown){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
@@ -146,11 +184,13 @@ function PortalApp(){
   },[s,url]);
 
   const multi=Boolean(s&&AUDIT.includes(s.role));
+  const canEdit=Boolean(s&&canEditRanch(s));
+  const canWorkers=Boolean(s&&canManageWorkers(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','rancho','cuentas-rama'].includes(url));
 
-  // WEB-005: Dynamic list of accessible ranches from GET /api/v1/ranches (BE-004), independent of active ranch
+  // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
     queryKey:['ranches',s?.username],
     queryFn:async()=>{
@@ -176,18 +216,6 @@ function PortalApp(){
     enabled:Boolean(isInventoryRoute&&detail&&detailId&&(!multi||activeRanchId)),
   });
 
-  // Synchronize React session state whenever clearSession() runs (e.g. failed token refresh on any request)
-  useEffect(()=>{
-    return onSessionCleared(()=>{
-      setAvailableRanches([]);
-      qc.clear();
-      setS(null);
-      setPass('');
-      setShowPassword(false);
-      if(location.hash!=='#/login')location.hash='/login';
-    });
-  },[qc,setAvailableRanches]);
-
   function handleRanchChange(ranchId:string){
     const nextId=ranchId||null;
     setActiveRanchId(nextId);
@@ -200,39 +228,57 @@ function PortalApp(){
     qc.invalidateQueries();
   }
 
+  function handleRanchSaved(updated:Ranch){
+    const {availableRanches:currentList,activeRanchId:currentActiveId}=useRanchContextStore.getState();
+    const exists=currentList.some(r=>r.id===updated.id);
+    const nextList=exists
+      ?currentList.map(r=>r.id===updated.id?{...r,...updated}:r)
+      :[...currentList,updated];
+    setAvailableRanches(nextList);
+    if(s){
+      const merged=mergeLatestTokens(s,currentActiveId??updated.id);
+      const nextSession:Session={...merged,ranches:nextList};
+      setS(nextSession);
+      sessionStorage.setItem(KEY,JSON.stringify(nextSession));
+    }
+    qc.invalidateQueries({queryKey:['ranches']});
+  }
+
   async function login(e:FormEvent){
     e.preventDefault();setBusy(true);setLoginErr('');
+    const startGen=getSessionGeneration();
     try{
       const r=await fetch(`${API_BASE_URL}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
       if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
       const d=data(p),t=token(p),u=d.user||{};
       if(!t)throw Error('El servidor no devolvió el token de acceso.');
+      if(getSessionGeneration()!==startGen)return;
       let role=String(u.role||d.role||'');
       try{if(!role)role=String(JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).role||'')}catch{}
       role=role.toUpperCase().replace(/^ROLE_/,'');
       const initialRanches=normalizeRanches(p);
-      const initialRanchId=String(u.ranchId||u.ranch_id||d.ranchId||d.ranch_id||initialRanches[0]?.id||'').trim()||undefined;
-      const n:Session={accessToken:t,refreshToken:d.refreshToken||d.refresh_token,role,username:u.username||user.trim(),ranches:initialRanches,permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:initialRanchId};
+      const n:Session={accessToken:t,refreshToken:String(d.refreshToken||d.refresh_token||'')||undefined,role,username:String(u.username||d.username||user.trim()),ranches:initialRanches,permissions:u.branch_permissions||u.permissions||d.branch_permissions||d.permissions,activeRanchId:String(u.ranchId||u.ranch_id||d.ranchId||d.ranch_id||'').trim()||undefined};
       syncTokensToSessionStorage(n,true);
-      sessionStorage.setItem(KEY,JSON.stringify(n));
-      if(initialRanches.length>0)setAvailableRanches(initialRanches);
-      if(initialRanchId)setActiveRanchId(initialRanchId);
+      if(AUDIT.includes(role)&&!n.ranches.length){
+        try{n.ranches=normalizeRanches(await apiFetch<unknown>('/ranches',{ranchId:null}))}catch{}
+      }
+      if(getSessionGeneration()!==startGen)return;
+      if(n.ranches[0]&&!n.activeRanchId)n.activeRanchId=n.ranches[0].id;
+      const persisted=mergeLatestTokens(n,n.activeRanchId);
+      sessionStorage.setItem(KEY,JSON.stringify(persisted));
       qc.clear();
-      setS(n);setPass('');setShowPassword(false);
-      location.hash=canInventory(n)?'/inventario':'/sin-permisos';
+      if(persisted.ranches.length>0)setAvailableRanches(persisted.ranches);
+      setActiveRanchId(persisted.activeRanchId||null);
+      setS(persisted);setPass('');setShowPassword(false);
+      location.hash=canInventory(persisted)?'/inventario':'/sin-permisos';
     }catch(e){
+      if(getSessionGeneration()!==startGen)return;
       setLoginErr(e instanceof Error?e.message:'No se pudo iniciar sesión.');
     }finally{setBusy(false)}
   }
 
   function logout(){
     clearSession();
-    sessionStorage.removeItem(KEY);
-    setAvailableRanches([]);
-    qc.clear();
-    setS(null);
-    setPass('');
-    setShowPassword(false);
     location.hash='/login';
   }
 
@@ -314,10 +360,11 @@ function PortalApp(){
 
   const show=canInventory(s);
   const selectedRanch=activeRanchId?availableRanches.find(r=>r.id===activeRanchId)??null:null;
+  const ranchSynced=hasValidSync(selectedRanch?.last_sync_at);
   const animal=animalQuery.data??null;
   const loading=animalQuery.isFetching;
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
-  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -329,8 +376,18 @@ function PortalApp(){
         <nav className="sidebar-nav" aria-label="Navegación principal">
           <p className="sidebar-label">Módulos</p>
           {show&&(
-            <a className={!detail&&url!=='auditoria-nacimientos'?'nav-link active':'nav-link'} href="#/inventario">
+            <a className={url==='inventario'||detail?'nav-link active':'nav-link'} href="#/inventario">
               Inventario y Reseña
+            </a>
+          )}
+          {canEdit&&(
+            <a className={url==='rancho'?'nav-link active':'nav-link'} href="#/rancho">
+              Perfil del rancho
+            </a>
+          )}
+          {canWorkers&&(
+            <a className={url==='cuentas-rama'?'nav-link active':'nav-link'} href="#/cuentas-rama">
+              Cuentas rama
             </a>
           )}
           {AUDIT.includes(s.role)&&(
@@ -344,19 +401,8 @@ function PortalApp(){
         <header className="topbar">
           <div className="topbar-left">
             <span className="topbar-title">{pageTitle}</span>
-            {multi&&selectedRanch&&(
-              <div className="ranch-meta" aria-label="Datos del rancho seleccionado">
-                <span>
-                  Propietario: <b>{selectedRanch.owner_name||'Sin dato'}</b>
-                </span>
-                <span className="meta-sep" aria-hidden="true">·</span>
-                <span>
-                  Última sync móvil: <b>{formatDateTime(selectedRanch.last_sync_at)}</b>
-                </span>
-              </div>
-            )}
           </div>
-          <div className="account">
+          <div className="ranch-bar" aria-label="Contexto del rancho activo">
             {multi&&(
               <div className="ranch-control">
                 <label className="ranch">
@@ -387,6 +433,28 @@ function PortalApp(){
                 )}
               </div>
             )}
+            {selectedRanch?(
+              <div className="ranch-summary" aria-label="Datos del rancho seleccionado">
+                <strong className="ranch-summary-name">{selectedRanch.name}</strong>
+                <span className="meta-sep" aria-hidden="true">·</span>
+                <span className="ranch-summary-item">
+                  Propietario: <b>{selectedRanch.owner_name||'Sin dato'}</b>
+                </span>
+                <span className="meta-sep" aria-hidden="true">·</span>
+                <span className={'ranch-sync '+(ranchSynced?'synced':'pending')}>
+                  <span className="sync-dot" aria-hidden="true" />
+                  Última sync móvil: <b>{formatDateTime(selectedRanch.last_sync_at)}</b>
+                </span>
+              </div>
+            ):ranchesQuery.isLoading?(
+              <span className="ranch-loading">Cargando datos del rancho…</span>
+            ):(
+              <div className="ranch-summary" aria-label="Datos del rancho seleccionado">
+                <span className="ranch-summary-item">Datos del rancho no disponibles</span>
+              </div>
+            )}
+          </div>
+          <div className="account">
             <span className="account-user">{s.username}</span>
             <span className="role-badge">{s.role||'USUARIO'}</span>
             <button type="button" className="secondary-button" onClick={logout}>
@@ -401,6 +469,22 @@ function PortalApp(){
               <h1>Sin módulos habilitados</h1>
               <p className="intro">Tu cuenta no tiene permisos habilitados para consultar módulos del portal web.</p>
             </section>
+          ):url==='rancho'&&canEdit?(
+            <RanchProfileForm
+              ranch={selectedRanch}
+              loading={ranchesQuery.isFetching}
+              error={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudo cargar el perfil del rancho.'):''}
+              onRetry={()=>{void ranchesQuery.refetch()}}
+              onSaved={handleRanchSaved}
+            />
+          ):url==='cuentas-rama'&&canWorkers?(
+            <WorkerManagement
+              ranchId={activeRanchId??selectedRanch?.id??null}
+              ranchName={selectedRanch?.name}
+              ranchLoading={ranchesQuery.isFetching}
+              ranchError={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudo cargar la información del rancho.'):''}
+              onRetryRanch={()=>{void ranchesQuery.refetch()}}
+            />
           ):url==='auditoria-nacimientos'?(
             <section className="empty-panel">
               <p className="eyebrow">Acceso por rol</p>

@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../api/client';
 
@@ -299,7 +299,15 @@ export function InventoryView({
   });
   const [size, setSize] = useState<number>(20);
 
-  // Synchronously resolve page 0 whenever activeRanchId changes to avoid out-of-bounds queries
+  // Synchronously resolve page 0 on ranch change AND reset stored pageState so switching back never resurrects an old page
+  useEffect(() => {
+    setPageState((prev) =>
+      prev.ranchId === activeRanchId
+        ? prev
+        : { ranchId: activeRanchId, page: 0 }
+    );
+  }, [activeRanchId]);
+
   const page = pageState.ranchId === activeRanchId ? pageState.page : 0;
   function setPage(updater: number | ((prev: number) => number)) {
     setPageState((prev) => {

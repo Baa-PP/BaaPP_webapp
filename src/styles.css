@@ -381,9 +381,17 @@ a {
   background: var(--surface-base);
   border-bottom: 1px solid var(--border-strong);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px 20px;
+}
+
+.topbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .topbar-left {
@@ -399,20 +407,64 @@ a {
   color: var(--text-primary);
 }
 
-.ranch-meta {
+.ranch-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 10px 14px;
+  min-width: 0;
+}
+
+.ranch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 12px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.ranch-meta b {
+.ranch-summary-name {
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+
+.ranch-summary-item b,
+.ranch-sync b {
   color: var(--text-primary);
   font-weight: 600;
 }
 
+.ranch-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ranch-sync.synced .sync-dot {
+  background: var(--semantic-success);
+}
+
+.ranch-sync.pending .sync-dot {
+  background: var(--semantic-warning);
+}
+
+.ranch-loading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 .meta-sep {
   color: var(--border-strong);
 }
@@ -440,8 +492,6 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-right: 12px;
-  border-right: 1px solid var(--border-strong);
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 700;
@@ -1122,6 +1172,299 @@ td small,
   font-weight: 600;
 }
 
+/* --- Ranch Profile Form (WEB-007 / RF-WEB-03) --- */
+.ranch-profile {
+  max-width: 760px;
+}
+
+.ranch-form-card {
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.ranch-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  background: var(--surface-support);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.ranch-form-head span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ranch-form-body {
+  padding: 24px;
+}
+
+.ranch-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.field-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.weaning-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.weaning-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.weaning-option:hover {
+  border-color: var(--brand-primary);
+  background: var(--surface-support);
+}
+
+.weaning-option:focus-visible {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: 2px;
+}
+
+.weaning-option strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.weaning-option span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.weaning-option.active {
+  border-color: var(--brand-primary);
+  border-width: 2px;
+  padding: 11px 13px;
+  background: #F0FDF4;
+  color: var(--brand-primary);
+}
+
+.weaning-option.active span {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.success-banner {
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  color: var(--semantic-success);
+  background: #F0FDF4;
+  border: 1px solid var(--semantic-success);
+  border-left-width: 4px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.ranch-form-actions,
+.worker-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.save-button {
+  height: 40px;
+  padding: 0 18px;
+  font-size: 13px;
+}
+
+/* --- Worker Management (WEB-008 / RF-WEB-03) --- */
+.workers-page {
+  max-width: 960px;
+}
+
+.worker-create-card,
+.worker-list-card {
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.worker-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  background: var(--surface-support);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.worker-card-head span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.worker-card-body {
+  padding: 24px;
+}
+
+.perm-fieldset {
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+}
+
+.perm-fieldset legend {
+  margin-bottom: 10px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.perm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.perm-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  cursor: pointer;
+}
+
+.perm-option:hover {
+  border-color: var(--brand-primary);
+  background: var(--surface-support);
+}
+
+.perm-option input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--brand-primary);
+  flex-shrink: 0;
+}
+
+.perm-option strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.perm-option small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.worker-list-error {
+  padding: 20px 24px;
+}
+
+.worker-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.worker-item {
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.worker-item:first-child {
+  border-top: 0;
+}
+
+.worker-item.inactive {
+  background: var(--surface-support);
+}
+
+.worker-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.worker-identity h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.worker-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.worker-date {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.danger-outline-button {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--semantic-danger);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--semantic-danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.danger-outline-button:hover:not(:disabled) {
+  background: var(--semantic-danger-bg);
+}
+
+.danger-outline-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 /* --- Inventory search omnibox & pagination (WEB-009 / RF-WEB-04) --- */
 .filter-title-left {
   display: flex;
@@ -1281,6 +1624,33 @@ td small,
 
   .weights > div:last-child {
     grid-column: span 2;
+  }
+
+  .ranch-form-head,
+  .ranch-form-body,
+  .worker-card-head,
+  .worker-card-body,
+  .worker-item,
+  .worker-list-error {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .ranch-form-grid,
+  .weaning-options,
+  .perm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .worker-item-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ranch-form-actions,
+  .worker-item-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
   }
 
   .pagination-bar {
