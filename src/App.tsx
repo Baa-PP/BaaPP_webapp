@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
 import { API_BASE_URL } from './api/config';
+import { RanchContextNotice } from './components/RanchContextNotice';
 import { InventoryView } from './features/inventory/InventoryView';
 import { RanchProfileForm } from './features/ranch/RanchProfileForm';
 import { WorkerManagement } from './features/workers/WorkerManagement';
@@ -364,6 +365,8 @@ function PortalApp(){
   const animal=animalQuery.data??null;
   const loading=animalQuery.isFetching;
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
+  const ranchesError=ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):'';
+  const retryRanches=()=>{void ranchesQuery.refetch()};
   const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
@@ -451,6 +454,14 @@ function PortalApp(){
             ):(
               <div className="ranch-summary" aria-label="Datos del rancho seleccionado">
                 <span className="ranch-summary-item">Datos del rancho no disponibles</span>
+                {!multi&&ranchesQuery.isError&&(
+                  <>
+                    <span className="meta-sep" aria-hidden="true">·</span>
+                    <button type="button" className="link-button" onClick={retryRanches}>
+                      Reintentar
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -500,7 +511,15 @@ function PortalApp(){
               <a className="back-button" href="#/inventario">
                 ← Volver al inventario
               </a>
-              {loading&&!animal?(
+              {!activeRanchId?(
+                <RanchContextNotice
+                  eyebrow="Reseña del ejemplar"
+                  multiRanch={multi}
+                  loading={ranchesQuery.isFetching}
+                  error={ranchesError}
+                  onRetry={retryRanches}
+                />
+              ):loading&&!animal?(
                 <p className="muted">Cargando reseña del ejemplar…</p>
               ):error?(
                 <p className="error" role="alert">{error}</p>
@@ -513,8 +532,8 @@ function PortalApp(){
               activeRanchId={activeRanchId}
               ranchName={selectedRanch?.name}
               ranchesLoading={ranchesQuery.isFetching}
-              ranchesError={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):''}
-              onRetryRanches={()=>{void ranchesQuery.refetch()}}
+              ranchesError={ranchesError}
+              onRetryRanches={retryRanches}
             />
           )}
         </main>

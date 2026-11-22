@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../api/client';
+import { RanchContextNotice } from '../../components/RanchContextNotice';
 
 export interface AnimalSummary {
   id: string;
@@ -348,45 +349,14 @@ export function InventoryView({
   }
 
   if (!activeRanchId) {
-    if (ranchesLoading) {
-      return (
-        <section className="empty-panel">
-          <p className="muted">
-            {multiRanch ? 'Cargando ranchos afiliados…' : 'Cargando datos del rancho…'}
-          </p>
-        </section>
-      );
-    }
-    if (ranchesError) {
-      return (
-        <section className="empty-panel">
-          <p className="eyebrow">Inventario del rebaño</p>
-          <h1>No se pudieron cargar los ranchos</h1>
-          <p className="error" role="alert">
-            {ranchesError}
-          </p>
-          {onRetryRanches && (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onRetryRanches}
-            >
-              Reintentar
-            </button>
-          )}
-        </section>
-      );
-    }
     return (
-      <section className="empty-panel">
-        <p className="eyebrow">Contexto de rancho</p>
-        <h1>Sin rancho activo seleccionado</h1>
-        <p className="intro">
-          {multiRanch
-            ? 'Selecciona un rancho afiliado en la barra superior para consultar su inventario.'
-            : 'No se encontró un rancho activo asignado a tu cuenta.'}
-        </p>
-      </section>
+      <RanchContextNotice
+        eyebrow="Inventario del rebaño"
+        multiRanch={multiRanch}
+        loading={ranchesLoading}
+        error={ranchesError}
+        onRetry={onRetryRanches}
+      />
     );
   }
 
