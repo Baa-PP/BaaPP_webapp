@@ -13,6 +13,11 @@ const ReproductiveAnalyticsView = lazy(() =>
     default: mod.ReproductiveAnalyticsView,
   }))
 );
+const UnproductiveFemalesView = lazy(() =>
+  import('./features/analytics/UnproductiveFemalesView').then((mod) => ({
+    default: mod.UnproductiveFemalesView,
+  }))
+);
 
 type Animal={id:string;folioInterno?:string;folio_interno?:string;siniigaChip?:string;siniiga_chip?:string;chip_siniiga?:string;registroUno?:string;registro_uno?:string;adn?:string;sex?:string;lifeStage?:string;life_stage?:string;reproductiveStatus?:string;reproductive_status?:string;status?:string;breed?:string;raza?:string;birthDate?:string;birth_date?:string;fecha_nacimiento?:string;criador?:string;criador_name?:string;propietario?:string;owner_name?:string;ranch_name?:string;photoUrl?:string;photo_url?:string;presigned_photo_url?:string;photo_presigned_url?:string;mortalityDate?:string;mortality_date?:string;mortalityCause?:string;mortality_cause?:string;lifeStageAtDeath?:string;life_stage_at_death?:string;sale_date?:string;sale_cause?:string;sale_reason?:string;weights?:Measure[];measurements?:Measure[];weight_measurements?:Measure[];pesajes?:Measure[];sire_name?:string;padre_name?:string;padre?:string;sire?:string;externalSireFolio?:string;sire_uno?:string;folio_uno_padre?:string;sire_folio?:string;dam_name?:string;madre_name?:string;madre?:string;dam?:string;externalDamFolio?:string;dam_uno?:string;folio_uno_madre?:string;dam_folio?:string;conceptionMethod?:string;conception_method?:string;metodo_concepcion?:string;parturitionType?:string;birth_type?:string;tipo_parto?:string;[key:string]:any};
 type Measure={milestone?:string;hito?:string;weightKg?:number;weight_kg?:number;peso_kg?:number;date?:string;measured_at?:string;fecha?:string;scrotalCircumferenceCm?:number;scrotal_circumference_cm?:number;circunferencia_escrotal_cm?:number};
@@ -173,7 +178,7 @@ function PortalApp(){
       location.hash=defaultRoute(s);
       return;
     }
-    if(url==='indicadores'&&!canAnalytics(s)){
+    if((url==='indicadores'||url==='vientres-improductivos')&&!canAnalytics(s)){
       location.hash=defaultRoute(s);
       return;
     }
@@ -186,7 +191,7 @@ function PortalApp(){
       return;
     }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='indicadores'||url==='rancho'||url==='cuentas-rama';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='indicadores'||url==='vientres-improductivos'||url==='rancho'||url==='cuentas-rama';
     if(!isKnown){
       location.hash=defaultRoute(s);
       return;
@@ -202,7 +207,7 @@ function PortalApp(){
   const canViewAnalytics=Boolean(s&&canAnalytics(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','indicadores','rancho','cuentas-rama'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','indicadores','vientres-improductivos','rancho','cuentas-rama'].includes(url));
 
   // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
@@ -381,7 +386,7 @@ function PortalApp(){
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
   const ranchesError=ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):'';
   const retryRanches=()=>{void ranchesQuery.refetch()};
-  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='vientres-improductivos'&&canViewAnalytics?'Vientres improductivos (CULL / SELL)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -398,9 +403,14 @@ function PortalApp(){
             </a>
           )}
           {canViewAnalytics&&(
-            <a className={url==='indicadores'?'nav-link active':'nav-link'} href="#/indicadores">
-              Indicadores reproductivos
-            </a>
+            <>
+              <a className={url==='indicadores'?'nav-link active':'nav-link'} href="#/indicadores">
+                Indicadores reproductivos
+              </a>
+              <a className={url==='vientres-improductivos'?'nav-link active':'nav-link'} href="#/vientres-improductivos">
+                Vientres improductivos
+              </a>
+            </>
           )}
           {canEdit&&(
             <a className={url==='rancho'?'nav-link active':'nav-link'} href="#/rancho">
@@ -515,6 +525,25 @@ function PortalApp(){
                 ranchesLoading={ranchesQuery.isFetching}
                 ranchesError={ranchesError}
                 onRetryRanches={retryRanches}
+              />
+            </Suspense>
+          ):url==='vientres-improductivos'&&canViewAnalytics?(
+            <Suspense
+              fallback={
+                <section className="empty-panel" role="status" aria-live="polite">
+                  <p className="muted">Cargando tablero de vientres improductivos…</p>
+                </section>
+              }
+            >
+              <UnproductiveFemalesView
+                username={s.username}
+                multiRanch={multi}
+                activeRanchId={activeRanchId}
+                ranchName={selectedRanch?.name}
+                ranchesLoading={ranchesQuery.isFetching}
+                ranchesError={ranchesError}
+                onRetryRanches={retryRanches}
+                canOpenAnimalDetail={canInventory(s)}
               />
             </Suspense>
           ):url==='rancho'&&canEdit?(
