@@ -1,7 +1,18 @@
 import { useMemo } from 'react';
 import { RanchContextNotice } from '../../components/RanchContextNotice';
 import { EChartPanel, type EChartsOption } from './EChartPanel';
-import { type SeasonReproductionMetric } from './analyticsOverview';
+import {
+  AlertTriangleIcon,
+  escapeHtml,
+  formatCount,
+  formatPct,
+  formatRatio,
+  getDataIndex,
+} from './analyticsFormatters';
+import {
+  MORTALITY_ALERT_THRESHOLD_PCT,
+  type SeasonReproductionMetric,
+} from './analyticsOverview';
 import { useAnalyticsOverview } from './useAnalyticsOverview';
 
 export interface ReproductiveAnalyticsViewProps {
@@ -12,27 +23,6 @@ export interface ReproductiveAnalyticsViewProps {
   ranchesLoading: boolean;
   ranchesError?: string;
   onRetryRanches?: () => void;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function formatPct(value: number | null): string {
-  return value !== null && Number.isFinite(value) ? `${value.toFixed(1)}%` : '—';
-}
-
-function formatRatio(value: number | null): string {
-  return value !== null && Number.isFinite(value) ? value.toFixed(2) : '—';
-}
-
-function formatCount(value: number | null): string {
-  return value !== null && Number.isFinite(value) ? String(value) : '—';
 }
 
 function getSeasonalPregnancySubtitle(
@@ -58,19 +48,6 @@ function getSeasonalPregnancySubtitle(
     return 'Por temporada: hembras preñadas respecto al total diagnosticado';
   }
   return 'Por temporada: porcentaje de preñez reportado (diagnosticadas o expuestas)';
-}
-
-function getDataIndex(params: unknown): number {
-  const first = Array.isArray(params) ? params[0] : params;
-  if (
-    first &&
-    typeof first === 'object' &&
-    'dataIndex' in first &&
-    typeof (first as { dataIndex: unknown }).dataIndex === 'number'
-  ) {
-    return (first as { dataIndex: number }).dataIndex;
-  }
-  return -1;
 }
 
 function buildPregnancyOption(
@@ -351,6 +328,37 @@ export function ReproductiveAnalyticsView({
           <span>{seasons.length === 1 ? 'temporada' : 'temporadas'}</span>
         </div>
       </div>
+
+      {!errorMessage && !overviewQuery.isLoading && overview?.mortalityWeaning.mortalityAlert && (
+        <section
+          className="analytics-error analytics-mortality-alert-panel"
+          role="alert"
+        >
+          <div className="analytics-alert-icon-row">
+            <span className="analytics-alert-icon-badge">
+              <AlertTriangleIcon size={18} />
+            </span>
+            <div>
+              <strong>
+                Alerta: mortalidad de crías supera la meta (&gt;{MORTALITY_ALERT_THRESHOLD_PCT}%)
+              </strong>
+              <p>
+                {overview.mortalityWeaning.overallMortalityPct !== null
+                  ? `Mortalidad actual: ${overview.mortalityWeaning.overallMortalityPct.toFixed(1)}%`
+                  : 'Mortalidad superior al límite recomendado'}
+                {overview.mortalityWeaning.alertSeasons.length > 0
+                  ? ` · Temporadas en alerta: ${overview.mortalityWeaning.alertSeasons
+                      .map((s) => `${s.seasonLabel} (${formatPct(s.mortalityPct)})`)
+                      .join(', ')}`
+                  : ''}
+              </p>
+            </div>
+          </div>
+          <a className="secondary-button" href="#/mortalidad-destete">
+            Ver mortalidad y destete
+          </a>
+        </section>
+      )}
 
       {!errorMessage && !overviewQuery.isLoading && unproductive && unproductiveAlertCount > 0 && (
         <section
