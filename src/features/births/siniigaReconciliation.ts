@@ -329,24 +329,20 @@ export function buildMonthlySiniigaReconciliation(
     const bucket = buckets.get(monthKey);
     const summaryRow = serverSummaries.get(monthKey);
 
-    const birthsCount = bucket?.birthsCount ?? summaryRow?.birthsCount ?? 0;
-    const liveBornCount = bucket
-      ? bucket.liveBornCount
-      : (summaryRow?.liveBornCount ?? 0);
-    const stillbornCount = bucket
-      ? bucket.stillbornCount
-      : (summaryRow?.stillbornCount ?? 0);
-    const registeredLambsCount = bucket?.hasRegisteredCount
-      ? bucket.registeredSum
-      : (summaryRow?.registeredLambsCount ?? null);
+    const birthsCount = summaryRow?.birthsCount ?? bucket?.birthsCount ?? 0;
+    const liveBornCount =
+      summaryRow?.liveBornCount ?? bucket?.liveBornCount ?? 0;
+    const stillbornCount =
+      summaryRow?.stillbornCount ?? bucket?.stillbornCount ?? 0;
+    const registeredLambsCount =
+      summaryRow?.registeredLambsCount ??
+      (bucket?.hasRegisteredCount ? bucket.registeredSum : null);
 
-    // Use birth-derived deceased count when > 0, or explicit monthly override when birth rows omitted it
+    // Keep precedence consistent with server summaryRow so partial buckets cannot mix with server totals
     const subsequentDeceasedCount =
-      bucket && bucket.subsequentDeceasedCount > 0
-        ? bucket.subsequentDeceasedCount
-        : (summaryRow?.subsequentDeceasedCount ??
-          bucket?.subsequentDeceasedCount ??
-          0);
+      summaryRow?.subsequentDeceasedCount ??
+      bucket?.subsequentDeceasedCount ??
+      0;
 
     const allowedChipsCount = Math.max(
       0,

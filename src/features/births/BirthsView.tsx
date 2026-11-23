@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '../../api/client';
+import { apiFetch, getSessionGeneration } from '../../api/client';
 import { ModalDialog } from '../../components/ModalDialog';
 import { RanchContextNotice } from '../../components/RanchContextNotice';
-import { RecordedBirthAuditSummary } from './auditApi';
+import {
+  fetchPresignedEvidenceDownload,
+  RecordedBirthAuditSummary,
+  sanitizeHttpMediaUrl,
+} from './auditApi';
 import { BirthAuditHistory } from './BirthAuditHistory';
 import { BirthAuditModal, BirthAuditMode } from './BirthAuditModal';
 import { SiniigaReconciliationView } from './SiniigaReconciliationView';
@@ -78,29 +82,100 @@ function firstValidInt(...values: unknown[]): number | null {
   return null;
 }
 
-function sanitizePhotoUrl(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
-    return trimmed;
-  }
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-      return parsed.toString();
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
+const MAX_BIRTHS_PAGES = 20;
+const MONTH_FILTER_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
+const MONTHS_ES = [
+  { value: '01', label: 'Enero' },
+  { value: '02', label: 'Febrero' },
+  { value: '03', label: 'Marzo' },
+  { value: '04', label: 'Abril' },
+  { value: '05', label: 'Mayo' },
+  { value: '06', label: 'Junio' },
+  { value: '07', label: 'Julio' },
+  { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Septiembre' },
+  { value: '10', label: 'Octubre' },
+  { value: '11', label: 'Noviembre' },
+  { value: '12', label: 'Diciembre' },
+] as const;
 
 function getCurrentYearMonth(): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+}
+
+function getYearOptions(selectedYear?: string): string[] {
+  const currentYear = new Date().getFullYear();
+  const years = new Set<string>();
+  for (let y = currentYear + 1; y >= currentYear - 10; y -= 1) {
+    years.add(String(y));
+  }
+  if (selectedYear && /^\d{4}$/.test(selectedYear)) {
+    years.add(selectedYear);
+  }
+  return Array.from(years).sort((a, b) => b.localeCompare(a));
+}
+
+function readNextBirthsPage(payload: unknown, currentPage: number): number | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const root = payload as Record<string, unknown>;
+  const unwrapped =
+    'data' in root && root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+      ? (root.data as Record<string, unknown>)
+      : root;
+  const totalPages = toOptionalNonNegativeInt(
+    unwrapped.totalPages ?? unwrapped.total_pages
+  );
+  if (totalPages !== null) {
+    return currentPage + 1 < totalPages ? currentPage + 1 : undefined;
+  }
+  const hasNext = unwrapped.hasNext ?? unwrapped.has_next;
+  if (hasNext === true) {
+    return currentPage + 1;
+  }
+  return undefined;
+}
+
+async function fetchAllBirthsPages(
+  ranchId: string | undefined,
+  month: string,
+  signal?: AbortSignal
+): Promise<{ rawPayload: unknown; births: BirthRecord[] }> {
+  const validMonth = MONTH_FILTER_REGEX.test(month) ? month : '';
+  const baseParams = validMonth ? `month=${encodeURIComponent(validMonth)}` : '';
+  const firstQs = baseParams ? `?${baseParams}` : '';
+  const firstPayload = await apiFetch<unknown>(`/births${firstQs}`, {
+    ranchId,
+    signal,
+  });
+  const deduped = new Map<string, BirthRecord>();
+  for (const item of normalizeBirthList(firstPayload)) {
+    deduped.set(item.id, item);
+  }
+
+  let nextPage = readNextBirthsPage(firstPayload, 0);
+  let pagesLoaded = 1;
+  while (nextPage !== undefined && pagesLoaded < MAX_BIRTHS_PAGES) {
+    const pageParams = [baseParams, `page=${nextPage}`].filter(Boolean).join('&');
+    const nextPayload = await apiFetch<unknown>(`/births?${pageParams}`, {
+      ranchId,
+      signal,
+    });
+    const nextItems = normalizeBirthList(nextPayload);
+    if (nextItems.length === 0) break;
+    for (const item of nextItems) {
+      deduped.set(item.id, item);
+    }
+    pagesLoaded += 1;
+    nextPage = readNextBirthsPage(nextPayload, nextPage);
+  }
+
+  return {
+    rawPayload: firstPayload,
+    births: Array.from(deduped.values()),
+  };
 }
 
 function formatDate(value?: string): string {
@@ -142,6 +217,8 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
       obj.id,
       obj.birthId,
       obj.birth_id,
+      obj.partoId,
+      obj.parto_id,
       typeof obj.id === 'number' ? String(obj.id) : undefined
     ) ?? `birth-${index}`;
 
@@ -264,7 +341,7 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
     obj.chips_solicitados
   );
 
-  const evidencePhotoUrl = sanitizePhotoUrl(
+  const evidencePhotoUrl = sanitizeHttpMediaUrl(
     toNonEmptyString(
       obj.evidencePhotoUrl,
       obj.evidence_photo_url,
@@ -307,7 +384,7 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
 
   return {
     id,
-    ranchId: toNonEmptyString(obj.ranchId, obj.ranch_id),
+    ranchId: toNonEmptyString(obj.ranchId, obj.ranch_id, obj.ranchoId, obj.rancho_id),
     damId: toNonEmptyString(obj.damId, obj.dam_id, obj.madreId, obj.madre_id),
     damLabel,
     damUno: toNonEmptyString(obj.damUno, obj.dam_uno, obj.folio_uno_madre),
@@ -386,6 +463,14 @@ export function BirthsView({
   const [localDateKey, setLocalDateKey] = useState<string>(() => getLocalDateKey());
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [modalImgError, setModalImgError] = useState<boolean>(false);
+  const [resolvedEvidenceUrl, setResolvedEvidenceUrl] = useState<string | null>(null);
+  const [evidenceLoading, setEvidenceLoading] = useState<boolean>(false);
+  const [evidenceFetchError, setEvidenceFetchError] = useState<string>('');
+  const [evidenceRetryNonce, setEvidenceRetryNonce] = useState<number>(0);
+  const evidenceAutoRetriedRef = useRef<boolean>(false);
+  const [manualSiniigaRequests, setManualSiniigaRequests] = useState<
+    Record<string, number | null>
+  >({});
   const [auditModal, setAuditModal] = useState<{
     mode: BirthAuditMode;
     birth: BirthRecord | null;
@@ -394,7 +479,7 @@ export function BirthsView({
   const [lastAuditSummary, setLastAuditSummary] =
     useState<RecordedBirthAuditSummary | null>(null);
 
-  const monthFilterRef = useRef<HTMLInputElement | null>(null);
+  const monthFilterRef = useRef<HTMLSelectElement | null>(null);
   const evidenceTriggerRef = useRef<HTMLElement | null>(null);
   const auditTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -447,10 +532,11 @@ export function BirthsView({
     };
   }, []);
 
-  // Reset modal selection and confirmation summary when switching ranch
+  // Reset modal selection, SINIIGA manual entries, and confirmation summary when switching ranch
   useEffect(() => {
     setLastAuditSummary(null);
     setAuditModal(null);
+    setManualSiniigaRequests({});
     auditTriggerRef.current = null;
   }, [activeRanchId]);
 
@@ -458,16 +544,27 @@ export function BirthsView({
   useEffect(() => {
     setSelectedEvidenceId(null);
     setModalImgError(false);
+    setResolvedEvidenceUrl(null);
+    setEvidenceFetchError('');
+    setEvidenceLoading(false);
+    setEvidenceRetryNonce(0);
+    evidenceAutoRetriedRef.current = false;
     evidenceTriggerRef.current = null;
   }, [activeRanchId, monthFilter]);
 
   useEffect(() => {
     setModalImgError(false);
+    setEvidenceFetchError('');
+    setEvidenceRetryNonce(0);
+    evidenceAutoRetriedRef.current = false;
   }, [selectedEvidenceId]);
 
   function openEvidenceModal(birth: BirthRecord, triggerEl: HTMLButtonElement | null) {
     evidenceTriggerRef.current = triggerEl;
     setModalImgError(false);
+    setEvidenceFetchError('');
+    setEvidenceRetryNonce(0);
+    evidenceAutoRetriedRef.current = false;
     setSelectedEvidenceId(birth.id);
   }
 
@@ -489,19 +586,20 @@ export function BirthsView({
     setAuditModal(null);
   }
 
+  const validMonthFilter = MONTH_FILTER_REGEX.test(monthFilter) ? monthFilter : '';
+
   const birthsQuery = useQuery({
-    queryKey: ['births', username, activeRanchId, monthFilter] as const,
-    queryFn: async ({ queryKey }) => {
+    queryKey: ['births', username, activeRanchId, validMonthFilter] as const,
+    queryFn: async ({ queryKey, signal }) => {
       const ranchId = queryKey[2];
       const month = queryKey[3];
-      const qs = month ? `?month=${encodeURIComponent(month)}` : '';
-      const res = await apiFetch<unknown>(`/births${qs}`, {
-        ranchId: ranchId ?? undefined,
-      });
-      return normalizeBirthList(res);
+      return fetchAllBirthsPages(ranchId ?? undefined, month, signal);
     },
     enabled: Boolean(activeRanchId),
   });
+
+  const needsSeparateReconciliationFetch =
+    Boolean(activeRanchId && effectiveTab === 'siniiga' && validMonthFilter !== '');
 
   const reconciliationQuery = useQuery({
     queryKey: [
@@ -510,21 +608,19 @@ export function BirthsView({
       activeRanchId,
       'siniiga-reconciliation',
     ] as const,
-    queryFn: async ({ queryKey }) => {
+    queryFn: async ({ queryKey, signal }) => {
       const ranchId = queryKey[2];
-      const rawPayload = await apiFetch<unknown>('/births', {
-        ranchId: ranchId ?? undefined,
-      });
-      return {
-        rawPayload,
-        births: normalizeBirthList(rawPayload),
-      };
+      return fetchAllBirthsPages(ranchId ?? undefined, '', signal);
     },
-    enabled: Boolean(activeRanchId && effectiveTab === 'siniiga'),
+    enabled: needsSeparateReconciliationFetch,
   });
 
+  const reconciliationSource = needsSeparateReconciliationFetch
+    ? reconciliationQuery
+    : birthsQuery;
+
   const reconciliationBirths = (
-    reconciliationQuery.data?.births ?? []
+    reconciliationSource.data?.births ?? []
   ).map((birth) => {
     const daysElapsed = computeDaysElapsed(birth.birthDate, localDateKey);
     const isLocked =
@@ -536,7 +632,7 @@ export function BirthsView({
     return { ...birth, daysElapsed, isLocked };
   });
 
-  const allBirths = (birthsQuery.data ?? []).map((birth) => {
+  const allBirths = (birthsQuery.data?.births ?? []).map((birth) => {
     const daysElapsed = computeDaysElapsed(birth.birthDate, localDateKey);
     const isLocked =
       birth.serverLocked ||
@@ -551,6 +647,81 @@ export function BirthsView({
     activeRanchId && selectedEvidenceId
       ? allBirths.find((b) => b.id === selectedEvidenceId) ?? null
       : null;
+
+  // Resolve or re-sign S3 presigned URLs on demand (handles s3Key-only rows and 5-min URL expiry)
+  useEffect(() => {
+    if (!selectedEvidence || !activeRanchId) {
+      setResolvedEvidenceUrl(null);
+      setEvidenceLoading(false);
+      setEvidenceFetchError('');
+      setModalImgError(false);
+      return;
+    }
+
+    setModalImgError(false);
+    setEvidenceFetchError('');
+
+    if (selectedEvidence.evidencePhotoUrl && evidenceRetryNonce === 0) {
+      setResolvedEvidenceUrl(selectedEvidence.evidencePhotoUrl);
+      setEvidenceLoading(false);
+      return;
+    }
+
+    if (!selectedEvidence.evidencePhotoS3Key) {
+      if (selectedEvidence.evidencePhotoUrl) {
+        setResolvedEvidenceUrl(selectedEvidence.evidencePhotoUrl);
+        setEvidenceLoading(false);
+        return;
+      }
+      setResolvedEvidenceUrl(null);
+      setEvidenceLoading(false);
+      setEvidenceFetchError('Este parto no incluye fotografía de evidencia en S3.');
+      return;
+    }
+
+    const controller = new AbortController();
+    const requestRanchId = activeRanchId;
+    const requestGen = getSessionGeneration();
+    let active = true;
+
+    evidenceAutoRetriedRef.current = true;
+    setResolvedEvidenceUrl(null);
+    setEvidenceLoading(true);
+
+    fetchPresignedEvidenceDownload(
+      requestRanchId,
+      selectedEvidence.evidencePhotoS3Key,
+      controller.signal
+    )
+      .then((url) => {
+        if (!active || getSessionGeneration() !== requestGen) return;
+        setResolvedEvidenceUrl(url);
+      })
+      .catch((err) => {
+        if (
+          !active ||
+          controller.signal.aborted ||
+          getSessionGeneration() !== requestGen
+        ) {
+          return;
+        }
+        setEvidenceFetchError(
+          err instanceof Error
+            ? err.message
+            : 'No fue posible obtener el enlace temporal de S3.'
+        );
+      })
+      .finally(() => {
+        if (active && getSessionGeneration() === requestGen) {
+          setEvidenceLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectedEvidence, activeRanchId, evidenceRetryNonce]);
 
   if (!activeRanchId) {
     return (
@@ -777,18 +948,21 @@ export function BirthsView({
           <SiniigaReconciliationView
             activeRanchId={activeRanchId}
             ranchName={ranchName}
-            rawPayload={reconciliationQuery.data?.rawPayload}
+            rawPayload={reconciliationSource.data?.rawPayload}
             births={reconciliationBirths}
-            loading={reconciliationQuery.isFetching}
+            loading={reconciliationSource.isFetching}
             error={
-              reconciliationQuery.error instanceof Error
-                ? reconciliationQuery.error.message
-                : reconciliationQuery.isError
+              reconciliationSource.error instanceof Error
+                ? reconciliationSource.error.message
+                : reconciliationSource.isError
                   ? 'No se pudieron consultar los nacimientos del rancho.'
                   : undefined
             }
+            referenceDateKey={localDateKey}
+            manualRequests={manualSiniigaRequests}
+            onManualRequestsChange={setManualSiniigaRequests}
             onRetry={() => {
-              void reconciliationQuery.refetch();
+              void reconciliationSource.refetch();
             }}
             onInspectMonthBirths={(monthKey) => {
               setMonthFilter(monthKey);
@@ -804,17 +978,65 @@ export function BirthsView({
         >
           <section className="births-filter-bar" aria-label="Filtros de partos">
         <div className="births-filter-controls">
-          <label className="births-filter-label" htmlFor="births-month-filter">
-            Mes de parto
-          </label>
-          <input
-            ref={monthFilterRef}
-            id="births-month-filter"
-            type="month"
-            className="births-month-input"
-            value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
-          />
+          {(() => {
+            const [selectedYear, selectedMonth] = validMonthFilter
+              ? validMonthFilter.split('-')
+              : ['', ''];
+            const currentYear = String(new Date().getFullYear());
+            const yearOptions = getYearOptions(selectedYear);
+            return (
+              <>
+                <label className="births-filter-label" htmlFor="births-month-select">
+                  Mes de parto
+                </label>
+                <select
+                  ref={monthFilterRef}
+                  id="births-month-select"
+                  className="births-month-input"
+                  aria-label="Mes de parto"
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    const nextMonth = e.target.value;
+                    if (!nextMonth) {
+                      setMonthFilter('');
+                    } else {
+                      setMonthFilter(`${selectedYear || currentYear}-${nextMonth}`);
+                    }
+                  }}
+                >
+                  <option value="">Todos los meses</option>
+                  {MONTHS_ES.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  id="births-year-select"
+                  className="births-month-input"
+                  aria-label="Año de parto"
+                  value={selectedYear}
+                  onChange={(e) => {
+                    const nextYear = e.target.value;
+                    if (!nextYear) {
+                      setMonthFilter('');
+                    } else {
+                      const nextMonth =
+                        selectedMonth || String(new Date().getMonth() + 1).padStart(2, '0');
+                      setMonthFilter(`${nextYear}-${nextMonth}`);
+                    }
+                  }}
+                >
+                  <option value="">Año</option>
+                  {yearOptions.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </>
+            );
+          })()}
           <button
             type="button"
             className="secondary-button"
@@ -980,7 +1202,16 @@ export function BirthsView({
                           <span>Ver foto</span>
                         </button>
                       ) : b.evidencePhotoS3Key ? (
-                        <span className="muted">En S3 (sin enlace)</span>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={(e) =>
+                            openEvidenceModal(b, e.currentTarget)
+                          }
+                          aria-label={`Abrir fotografía S3 del parto de ${b.damLabel}`}
+                        >
+                          Ver foto S3
+                        </button>
                       ) : (
                         <span className="muted">Sin evidencia</span>
                       )}
@@ -1034,22 +1265,50 @@ export function BirthsView({
         {selectedEvidence && (
           <>
             <div className="birth-modal-body">
-              {selectedEvidence.evidencePhotoUrl && !modalImgError ? (
+              {evidenceLoading ? (
+                <div className="birth-modal-fallback" role="status" aria-live="polite">
+                  <p className="muted">Solicitando enlace temporal S3…</p>
+                </div>
+              ) : resolvedEvidenceUrl && !modalImgError ? (
                 <img
-                  src={selectedEvidence.evidencePhotoUrl}
+                  src={resolvedEvidenceUrl}
                   alt={`Fotografía de evidencia S3 del parto de ${selectedEvidence.damLabel}`}
                   className="birth-modal-img"
-                  onError={() => setModalImgError(true)}
+                  onError={() => {
+                    if (
+                      selectedEvidence.evidencePhotoS3Key &&
+                      !evidenceAutoRetriedRef.current
+                    ) {
+                      evidenceAutoRetriedRef.current = true;
+                      setEvidenceRetryNonce((n) => n + 1);
+                      return;
+                    }
+                    setModalImgError(true);
+                  }}
                 />
               ) : (
                 <div className="birth-modal-fallback" role="status">
                   <p>
-                    No fue posible cargar la vista previa de la fotografía desde S3.
+                    {evidenceFetchError ||
+                      'No fue posible cargar la vista previa de la fotografía desde S3.'}
                   </p>
                   {selectedEvidence.evidencePhotoS3Key && (
-                    <small className="muted">
-                      Clave S3: {selectedEvidence.evidencePhotoS3Key}
-                    </small>
+                    <>
+                      <small className="muted">
+                        Clave S3: {selectedEvidence.evidencePhotoS3Key}
+                      </small>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={evidenceLoading}
+                        onClick={() => {
+                          evidenceAutoRetriedRef.current = true;
+                          setEvidenceRetryNonce((n) => n + 1);
+                        }}
+                      >
+                        Reintentar enlace S3
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -1078,9 +1337,9 @@ export function BirthsView({
               </div>
 
               <div className="birth-modal-actions">
-                {selectedEvidence.evidencePhotoUrl && (
+                {resolvedEvidenceUrl && !modalImgError && (
                   <a
-                    href={selectedEvidence.evidencePhotoUrl}
+                    href={resolvedEvidenceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="link-button"

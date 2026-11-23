@@ -71,22 +71,40 @@ function formatFileSize(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-function useParentAnimals(ranchId: string, sex: 'FEMALE' | 'MALE', enabled: boolean) {
+const MAX_PARENT_PAGES = 25;
+
+function useParentAnimals(
+  username: string,
+  ranchId: string,
+  sex: 'FEMALE' | 'MALE',
+  enabled: boolean
+) {
   const query = useInfiniteQuery({
-    queryKey: [sex === 'FEMALE' ? 'birth-audit-dams' : 'birth-audit-sires', ranchId] as const,
+    queryKey: [
+      sex === 'FEMALE' ? 'birth-audit-dams' : 'birth-audit-sires',
+      username,
+      ranchId,
+    ] as const,
     queryFn: ({ queryKey, pageParam, signal }) =>
-      fetchRanchParentAnimalsPage(queryKey[1], sex, pageParam, signal),
+      fetchRanchParentAnimalsPage(queryKey[2], sex, pageParam, signal),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.nextPage,
     enabled,
   });
   const { data, fetchNextPage, hasNextPage, isFetching, isError } = query;
+  const loadedPages = data?.pages.length ?? 0;
 
   useEffect(() => {
-    if (enabled && hasNextPage && !isFetching && !isError) {
+    if (
+      enabled &&
+      hasNextPage &&
+      loadedPages < MAX_PARENT_PAGES &&
+      !isFetching &&
+      !isError
+    ) {
       void fetchNextPage();
     }
-  }, [data, enabled, fetchNextPage, hasNextPage, isFetching, isError]);
+  }, [data, enabled, fetchNextPage, hasNextPage, loadedPages, isFetching, isError]);
 
   const unique = new Map<string, RanchAnimalOption>();
   for (const page of data?.pages ?? []) {
@@ -173,7 +191,7 @@ export function BirthAuditModal({
       setBirthDate(toDateInputValue(birth.birthDate));
       setLiveBornInput(String(birth.liveBornCount));
       setStillbornInput(String(birth.stillbornCount));
-      setConceptionMethod(birth.conceptionMethod || 'MN');
+      setConceptionMethod(birth.conceptionMethod || '');
     } else {
       setDamId('');
       setSireId('');
@@ -207,8 +225,8 @@ export function BirthAuditModal({
   }, [selectedFile]);
 
   const loadParents = open && mode === 'create_late' && Boolean(activeRanchId);
-  const damsQuery = useParentAnimals(activeRanchId, 'FEMALE', loadParents);
-  const siresQuery = useParentAnimals(activeRanchId, 'MALE', loadParents);
+  const damsQuery = useParentAnimals(username, activeRanchId, 'FEMALE', loadParents);
+  const siresQuery = useParentAnimals(username, activeRanchId, 'MALE', loadParents);
 
   const isSubmitting = submitStage !== 'idle';
   const trimmedReason = reason.trim();
@@ -354,7 +372,7 @@ export function BirthAuditModal({
         birthDate,
         liveBornCount,
         stillbornCount,
-        conceptionMethod,
+        conceptionMethod: conceptionMethod || undefined,
         reason: trimmedReason,
         evidencePhotoS3Key: s3Key,
         previousLiveBornCount: birth?.liveBornCount,
@@ -550,6 +568,9 @@ export function BirthAuditModal({
                   disabled={isSubmitting}
                   onChange={(e) => setConceptionMethod(e.target.value)}
                 >
+                  {mode === 'correct' && (
+                    <option value="">Sin cambios (mantener actual)</option>
+                  )}
                   {CONCEPTION_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}

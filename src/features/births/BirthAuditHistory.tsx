@@ -112,11 +112,13 @@ export function BirthAuditHistory({
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } =
     auditsQuery;
+  const loadedPages = data?.pages.length ?? 0;
 
   useEffect(() => {
     if (
       activeRanchId &&
       hasNextPage &&
+      loadedPages < 25 &&
       !auditsQuery.isFetching &&
       !isFetchNextPageError
     ) {
@@ -126,6 +128,7 @@ export function BirthAuditHistory({
     activeRanchId,
     data,
     hasNextPage,
+    loadedPages,
     auditsQuery.isFetching,
     isFetchNextPageError,
     fetchNextPage,

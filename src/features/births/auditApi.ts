@@ -19,7 +19,7 @@ function isSafePresignedUploadUrl(rawUrl: string): boolean {
   }
 }
 
-function sanitizeHttpMediaUrl(rawUrl?: string): string | undefined {
+export function sanitizeHttpMediaUrl(rawUrl?: string): string | undefined {
   if (!rawUrl) return undefined;
   const trimmed = rawUrl.trim();
   if (!trimmed) return undefined;
@@ -234,7 +234,9 @@ export async function uploadBirthEvidenceToS3(
 
   try {
     signal.throwIfAborted();
-    return await Promise.race([interrupted, requestEvidenceUpload(file, mimeType, ranchId, signal)]);
+    const uploadPromise = requestEvidenceUpload(file, mimeType, ranchId, signal);
+    uploadPromise.catch(() => undefined);
+    return await Promise.race([interrupted, uploadPromise]);
   } finally {
     globalThis.clearTimeout(timeout);
     signal.removeEventListener('abort', onAbort);
@@ -382,7 +384,7 @@ export async function submitBirthAudit(
           birthDate: input.birthDate,
           liveBornCount: input.liveBornCount,
           stillbornCount: input.stillbornCount,
-          conceptionMethod: input.conceptionMethod,
+          ...(input.conceptionMethod ? { conceptionMethod: input.conceptionMethod } : {}),
           evidencePhotoS3Key: input.evidencePhotoS3Key,
           reason: input.reason.trim(),
         }
@@ -679,7 +681,7 @@ export function computeAuditStateDiff(
     const hasNext = Object.prototype.hasOwnProperty.call(newState, key);
     const prevVal = hasPrev ? previousState[key] : undefined;
     const nextVal = hasNext ? newState[key] : undefined;
-    const changed = isLateCreation || hasPrev !== hasNext || !auditValuesEqual(prevVal, nextVal);
+    const changed = isLateCreation || !auditValuesEqual(prevVal, nextVal);
 
     return {
       key,

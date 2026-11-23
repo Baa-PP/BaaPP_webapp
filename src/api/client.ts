@@ -1,5 +1,9 @@
 import { useRanchContextStore } from "../store/useRanchContextStore";
-import { API_BASE_URL } from "./config";
+import {
+  API_BASE_URL,
+  API_CONFIG_ERROR,
+  validateApiBaseUrl,
+} from "./config";
 
 /**
  * WEB-003 — apiFetch: cliente HTTP centralizado.
@@ -26,6 +30,15 @@ import { API_BASE_URL } from "./config";
 
 export interface ApiError extends Error {
   status: number;
+  code?: string;
+}
+
+export interface ForbiddenEvent {
+  status: 403;
+  code?: string;
+  message: string;
+  path: string;
+  ranchId: string | null;
 }
 
 export interface ApiFetchOptions extends RequestInit {
@@ -33,10 +46,46 @@ export interface ApiFetchOptions extends RequestInit {
   ranchId?: string | null;
 }
 
-function createApiError(status: number, message: string): ApiError {
+function createApiError(
+  status: number,
+  message: string,
+  code?: string
+): ApiError {
   const err = new Error(message) as ApiError;
   err.status = status;
+  if (code) err.code = code;
   return err;
+}
+
+function resolveForbiddenMessage(rawMessage?: string, code?: string): string {
+  const trimmed = typeof rawMessage === "string" ? rawMessage.trim() : "";
+  if (
+    trimmed.length > 0 &&
+    trimmed !== "HTTP 403" &&
+    trimmed.toLowerCase() !== "forbidden"
+  ) {
+    return trimmed;
+  }
+  switch (code) {
+    case "RANCH_ACCESS_DENIED":
+      return "El usuario autenticado no tiene acceso al rancho activo.";
+    case "INSUFFICIENT_PERMISSION":
+      return "No cuentas con los permisos necesarios para realizar esta operación en el rancho activo.";
+    default:
+      return "Acceso denegado (403): no tienes permisos para realizar esta operación.";
+  }
+}
+
+type ForbiddenErrorListener = (event: ForbiddenEvent) => void;
+const forbiddenErrorListeners = new Set<ForbiddenErrorListener>();
+
+export function onForbiddenError(
+  listener: ForbiddenErrorListener
+): () => void {
+  forbiddenErrorListeners.add(listener);
+  return () => {
+    forbiddenErrorListeners.delete(listener);
+  };
 }
 
 /**
@@ -54,18 +103,40 @@ function isNonRecoverableRefreshError(err: unknown): boolean {
   return status >= 400 && status < 500;
 }
 
-async function parseResponse<T>(res: Response): Promise<T> {
+async function parseResponse<T>(
+  res: Response,
+  context?: { path: string; ranchId: string | null; expectedGeneration: number }
+): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let code: string | undefined;
     try {
       const body = await res.json();
-      if (typeof body?.message === "string" && body.message.length > 0) {
-        message = body.message;
+      if (typeof body?.code === "string" && body.code.trim().length > 0) {
+        code = body.code.trim();
+      }
+      if (typeof body?.message === "string" && body.message.trim().length > 0) {
+        message = body.message.trim();
       }
     } catch {
       // sin cuerpo JSON
     }
-    throw createApiError(res.status, message);
+
+    if (res.status === 403) {
+      message = resolveForbiddenMessage(message, code);
+      if (context && sessionGeneration === context.expectedGeneration) {
+        const event: ForbiddenEvent = {
+          status: 403,
+          code,
+          message,
+          path: context.path,
+          ranchId: context.ranchId,
+        };
+        forbiddenErrorListeners.forEach((listener) => listener(event));
+      }
+    }
+
+    throw createApiError(res.status, message, code);
   }
   return res.json() as Promise<T>;
 }
@@ -145,6 +216,91 @@ function flushQueue(error: unknown, newToken?: string): void {
   });
 }
 
+function hasRequestBody(body: BodyInit | null | undefined): boolean {
+  return body !== undefined && body !== null;
+}
+
+function assertSafeResponseTransport(
+  res: Response,
+  rejectRedirects: boolean,
+  redirectMessage = "Redirección bloqueada por política de seguridad para evitar reenvío de datos."
+): void {
+  if (
+    rejectRedirects &&
+    (res.redirected || (res.status >= 300 && res.status < 400))
+  ) {
+    throw createApiError(0, redirectMessage, "REDIRECT_BLOCKED");
+  }
+
+  if (typeof res.url === "string" && res.url.length > 0) {
+    const pageProtocol =
+      typeof window !== "undefined" ? window.location.protocol : undefined;
+    const targetCheck = validateApiBaseUrl(res.url, pageProtocol);
+    if (targetCheck.error) {
+      throw createApiError(0, targetCheck.error, "INSECURE_TRANSPORT");
+    }
+  }
+}
+
+async function fetchApiResponse(
+  path: string,
+  requestInit: RequestInit
+): Promise<Response> {
+  if (API_CONFIG_ERROR) {
+    throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
+  }
+
+  const hasBody = hasRequestBody(requestInit.body);
+  const effectiveInit: RequestInit = hasBody
+    ? { ...requestInit, redirect: "error" }
+    : requestInit;
+
+  const res = await fetch(`${API_BASE_URL}${path}`, effectiveInit);
+  assertSafeResponseTransport(res, hasBody);
+  return res;
+}
+
+/**
+ * Envía una petición JSON de autenticación con credenciales (login / refresh)
+ * bloqueando cualquier redirección HTTP para impedir el reenvío de contraseña o
+ * refresh token fuera de la política de transporte validada.
+ */
+export async function postAuthEndpoint(
+  path: string,
+  body: unknown
+): Promise<Response> {
+  if (API_CONFIG_ERROR) {
+    throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw createApiError(
+      0,
+      "No se pudo completar la autenticación de forma segura (conexión o redirección bloqueada).",
+      "AUTH_TRANSPORT_ERROR"
+    );
+  }
+
+  assertSafeResponseTransport(
+    res,
+    true,
+    "Redirección bloqueada por política de seguridad en petición de credenciales."
+  );
+
+  return res;
+}
+
 /**
  * Intenta refrescar el JWT contra POST /api/v1/auth/refresh (BE-001).
  * Persiste el nuevo accessToken y cualquier refreshToken rotado solo si
@@ -158,14 +314,7 @@ async function refreshSession(): Promise<string> {
 
   const startGeneration = sessionGeneration;
 
-  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ refreshToken }),
-  });
+  const res = await postAuthEndpoint("/auth/refresh", { refreshToken });
 
   if (!res.ok) {
     throw createApiError(res.status, "Refresh token inválido o expirado.");
@@ -238,11 +387,22 @@ export async function apiFetch<T>(
   path: string,
   init: ApiFetchOptions = {}
 ): Promise<T> {
+  if (API_CONFIG_ERROR) {
+    throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
+  }
+
   const { ranchId, ...fetchInit } = init;
   const activeRanchId =
     ranchId !== undefined
       ? ranchId
       : useRanchContextStore.getState().activeRanchId;
+  const requestGen = sessionGeneration;
+  const effectiveRanchId = ranchId === null ? null : (activeRanchId ?? null);
+  const errorContext = {
+    path,
+    ranchId: effectiveRanchId,
+    expectedGeneration: requestGen,
+  };
   const token = sessionStorage.getItem("jwt_token");
 
   const headers = new Headers(fetchInit.headers);
@@ -257,9 +417,7 @@ export async function apiFetch<T>(
     headers.set("X-Active-Ranch-Id", activeRanchId);
   }
 
-  const requestGen = sessionGeneration;
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchApiResponse(path, {
     ...fetchInit,
     headers,
   });
@@ -275,14 +433,14 @@ export async function apiFetch<T>(
     const currentToken = sessionStorage.getItem("jwt_token");
     if (currentToken && currentToken !== token) {
       headers.set("Authorization", `Bearer ${currentToken}`);
-      const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+      const retryRes = await fetchApiResponse(path, {
         ...fetchInit,
         headers,
       });
       if (retryRes.status === 401) {
         expireSessionAndRedirect(requestGen);
       }
-      return parseResponse<T>(retryRes);
+      return parseResponse<T>(retryRes, errorContext);
     }
 
     // 2. Si ya hay un refresh en curso con el token actual, encolar esta petición (1 solo refresh para N 401 concurrentes).
@@ -292,14 +450,14 @@ export async function apiFetch<T>(
           resolve: async (newToken: string) => {
             try {
               headers.set("Authorization", `Bearer ${newToken}`);
-              const res = await fetch(`${API_BASE_URL}${path}`, {
+              const res = await fetchApiResponse(path, {
                 ...fetchInit,
                 headers,
               });
               if (res.status === 401) {
                 expireSessionAndRedirect(requestGen);
               }
-              resolve(await parseResponse<T>(res));
+              resolve(await parseResponse<T>(res, errorContext));
             } catch (err) {
               reject(err);
             }
@@ -335,7 +493,7 @@ export async function apiFetch<T>(
     isRefreshing = false;
 
     headers.set("Authorization", `Bearer ${newToken}`);
-    const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+    const retryRes = await fetchApiResponse(path, {
       ...fetchInit,
       headers,
     });
@@ -343,8 +501,8 @@ export async function apiFetch<T>(
       expireSessionAndRedirect(initialSessionGen);
     }
 
-    return parseResponse<T>(retryRes);
+    return parseResponse<T>(retryRes, errorContext);
   }
 
-  return parseResponse<T>(response);
+  return parseResponse<T>(response, errorContext);
 }

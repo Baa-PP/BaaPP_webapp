@@ -14,6 +14,13 @@ export interface SiniigaReconciliationViewProps {
   births: BirthReconciliationInput[];
   loading: boolean;
   error?: string;
+  referenceDateKey?: string;
+  manualRequests?: Record<string, number | null>;
+  onManualRequestsChange?: (
+    updater:
+      | Record<string, number | null>
+      | ((prev: Record<string, number | null>) => Record<string, number | null>)
+  ) => void;
   onRetry?: () => void;
   onInspectMonthBirths?: (monthKey: string) => void;
 }
@@ -25,23 +32,36 @@ export function SiniigaReconciliationView({
   births,
   loading,
   error,
+  referenceDateKey,
+  manualRequests: controlledManualRequests,
+  onManualRequestsChange,
   onRetry,
   onInspectMonthBirths,
 }: SiniigaReconciliationViewProps) {
   const [scopeFilter, setScopeFilter] = useState<MonthScopeFilter>('ALL');
-  const [manualRequests, setManualRequests] = useState<
+  const [localManualRequests, setLocalManualRequests] = useState<
     Record<string, number | null>
   >({});
 
+  const manualRequests = controlledManualRequests ?? localManualRequests;
+  const setManualRequests = onManualRequestsChange ?? setLocalManualRequests;
+
   useEffect(() => {
     setScopeFilter('ALL');
-    setManualRequests({});
-  }, [activeRanchId]);
+    if (!onManualRequestsChange) {
+      setLocalManualRequests({});
+    }
+  }, [activeRanchId, onManualRequestsChange]);
 
   const reconciliation = useMemo(
     () =>
-      buildMonthlySiniigaReconciliation(rawPayload, births, manualRequests),
-    [rawPayload, births, manualRequests]
+      buildMonthlySiniigaReconciliation(
+        rawPayload,
+        births,
+        manualRequests,
+        referenceDateKey
+      ),
+    [rawPayload, births, manualRequests, referenceDateKey]
   );
 
   const visibleMonths = useMemo(() => {
@@ -380,10 +400,13 @@ export function SiniigaReconciliationView({
                           Permitido ({month.effectiveRequestedChips} ≤{' '}
                           {month.allowedChipsCount})
                         </span>
-                      ) : month.registeredExceedsAllowed ? (
+                      ) : month.registeredExceedsAllowed && month.registeredLambsCount !== null ? (
                         <span className="siniiga-status-badge status-warn">
-                          Reg. ({month.registeredLambsCount}) supera cupo por{' '}
-                          {month.subsequentDeceasedCount} DECEASED
+                          Reg. ({month.registeredLambsCount}) supera cupo por +
+                          {month.registeredLambsCount - month.allowedChipsCount}
+                          {month.subsequentDeceasedCount > 0
+                            ? ` (${month.subsequentDeceasedCount} DECEASED)`
+                            : ''}
                         </span>
                       ) : (
                         <span className="siniiga-status-badge status-neutral">

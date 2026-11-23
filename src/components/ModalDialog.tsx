@@ -54,6 +54,7 @@ export function ModalDialog({
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mouseDownOnBackdropRef = useRef(false);
   const onCloseRef = useRef(onClose);
   const disableCloseRef = useRef(disableClose);
 
@@ -92,7 +93,11 @@ export function ModalDialog({
       }
     }
 
-    (closeButtonRef.current ?? dialogRef.current)?.focus();
+    const initialFocusTarget =
+      !disableCloseRef.current && closeButtonRef.current
+        ? closeButtonRef.current
+        : dialogRef.current;
+    initialFocusTarget?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -154,7 +159,6 @@ export function ModalDialog({
           item.el.setAttribute('aria-hidden', item.prevAriaHidden);
         }
       }
-      if (triggerRef) triggerRef.current = null;
       if (trigger?.isConnected) {
         trigger.focus();
       }
@@ -170,8 +174,18 @@ export function ModalDialog({
     <div
       ref={backdropRef}
       className="birth-modal-backdrop"
-      onClick={() => {
-        if (!disableClose) onClose();
+      onMouseDown={(e) => {
+        mouseDownOnBackdropRef.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (
+          !disableClose &&
+          mouseDownOnBackdropRef.current &&
+          e.target === e.currentTarget
+        ) {
+          onClose();
+        }
+        mouseDownOnBackdropRef.current = false;
       }}
       role="dialog"
       aria-modal="true"
