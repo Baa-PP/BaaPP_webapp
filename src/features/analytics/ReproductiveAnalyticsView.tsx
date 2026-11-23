@@ -65,7 +65,9 @@ function buildPregnancyOption(
         return [
           `<strong>${escapeHtml(s.seasonLabel)}</strong>`,
           `% de preñez: <b>${formatPct(s.pregnancyPct)}</b>`,
-          `Preñadas: ${s.pregnant} / Diagnosticadas: ${s.diagnosed}`,
+          s.diagnosed > 0
+            ? `Preñadas: ${s.pregnant} / Diagnosticadas: ${s.diagnosed}`
+            : `Preñadas: ${s.pregnant} / Expuestas: ${s.exposedFemales}`,
           `Hembras expuestas: ${s.exposedFemales}`,
         ].join('<br/>');
       },
@@ -359,9 +361,13 @@ export function ReproductiveAnalyticsView({
               <strong className="analytics-kpi-value">
                 {formatPct(overview.overallPregnancyPct)}
               </strong>
-              <small className="analytics-kpi-meta">
-                {overview.totalPregnant} preñadas / {overview.totalDiagnosed} diagn.
-              </small>
+              {overview.pregnancyRatio && (
+                <small className="analytics-kpi-meta">
+                  {overview.pregnancyRatio.numerator} preñadas /{' '}
+                  {overview.pregnancyRatio.denominator}{' '}
+                  {overview.pregnancyRatio.denominatorLabel}
+                </small>
+              )}
             </article>
 
             <article className="analytics-kpi-card">
@@ -369,9 +375,13 @@ export function ReproductiveAnalyticsView({
               <strong className="analytics-kpi-value">
                 {formatPct(overview.overallBirthsPerPregnantPct)}
               </strong>
-              <small className="analytics-kpi-meta">
-                {overview.totalBirths} partos / {overview.totalPregnant} preñadas
-              </small>
+              {overview.birthsPerPregnantRatio && (
+                <small className="analytics-kpi-meta">
+                  {overview.birthsPerPregnantRatio.numerator} partos /{' '}
+                  {overview.birthsPerPregnantRatio.denominator}{' '}
+                  {overview.birthsPerPregnantRatio.denominatorLabel}
+                </small>
+              )}
             </article>
 
             <article className="analytics-kpi-card">
@@ -379,9 +389,13 @@ export function ReproductiveAnalyticsView({
               <strong className="analytics-kpi-value">
                 {formatPct(overview.overallBirthsPerExposedPct)}
               </strong>
-              <small className="analytics-kpi-meta">
-                {overview.totalBirths} partos / {overview.totalExposed} expuestas
-              </small>
+              {overview.birthsPerExposedRatio && (
+                <small className="analytics-kpi-meta">
+                  {overview.birthsPerExposedRatio.numerator} partos /{' '}
+                  {overview.birthsPerExposedRatio.denominator}{' '}
+                  {overview.birthsPerExposedRatio.denominatorLabel}
+                </small>
+              )}
             </article>
 
             <article className="analytics-kpi-card">
@@ -389,9 +403,13 @@ export function ReproductiveAnalyticsView({
               <strong className="analytics-kpi-value">
                 {formatRatio(overview.overallProlificity)}
               </strong>
-              <small className="analytics-kpi-meta">
-                {overview.totalOffspringBorn} crías / {overview.totalBirths} partos
-              </small>
+              {overview.prolificityRatio && (
+                <small className="analytics-kpi-meta">
+                  {overview.prolificityRatio.numerator} crías /{' '}
+                  {overview.prolificityRatio.denominator}{' '}
+                  {overview.prolificityRatio.denominatorLabel}
+                </small>
+              )}
             </article>
           </section>
 
@@ -403,7 +421,11 @@ export function ReproductiveAnalyticsView({
               <div className="analytics-chart-head">
                 <div>
                   <h2>% de preñez por temporada</h2>
-                  <p>Hembras preñadas respecto al total diagnosticado</p>
+                  <p>
+                    {overview.pregnancyRatio?.denominatorLabel === 'expuestas'
+                      ? 'Hembras preñadas respecto al total expuesto'
+                      : 'Hembras preñadas respecto al total diagnosticado'}
+                  </p>
                 </div>
                 <span className="analytics-chart-pill">
                   Global: {formatPct(overview.overallPregnancyPct)}

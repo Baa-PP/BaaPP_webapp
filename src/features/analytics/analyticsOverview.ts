@@ -12,17 +12,22 @@ export interface SeasonReproductionMetric {
   prolificity: number | null;
 }
 
+export interface RatioAggregate {
+  numerator: number;
+  denominator: number;
+  denominatorLabel: string;
+}
+
 export interface ReproductiveOverview {
   seasons: SeasonReproductionMetric[];
-  totalExposed: number;
-  totalDiagnosed: number;
-  totalPregnant: number;
-  totalBirths: number;
-  totalOffspringBorn: number;
   overallPregnancyPct: number | null;
+  pregnancyRatio: RatioAggregate | null;
   overallBirthsPerPregnantPct: number | null;
+  birthsPerPregnantRatio: RatioAggregate | null;
   overallBirthsPerExposedPct: number | null;
+  birthsPerExposedRatio: RatioAggregate | null;
   overallProlificity: number | null;
+  prolificityRatio: RatioAggregate | null;
 }
 
 function toNonEmptyString(...values: unknown[]): string | undefined {
@@ -191,6 +196,30 @@ export function normalizeSeasonIndicator(
   };
 }
 
+function aggregateMatchedRatio(
+  seasons: SeasonReproductionMetric[],
+  getNumerator: (s: SeasonReproductionMetric) => number,
+  getDenominator: (s: SeasonReproductionMetric) => number,
+  getFallbackRate: (s: SeasonReproductionMetric) => number | null,
+  denominatorLabel: string,
+  scale: number,
+  decimals: number
+): { value: number | null; ratio: RatioAggregate | null } {
+  const matched = seasons.filter((s) => getDenominator(s) > 0);
+  if (matched.length > 0) {
+    const numerator = matched.reduce((acc, s) => acc + getNumerator(s), 0);
+    const denominator = matched.reduce((acc, s) => acc + getDenominator(s), 0);
+    return {
+      value: roundTo((numerator / denominator) * scale, decimals),
+      ratio: { numerator, denominator, denominatorLabel },
+    };
+  }
+  return {
+    value: averageNonNull(seasons.map(getFallbackRate), decimals),
+    ratio: null,
+  };
+}
+
 export function normalizeReproductiveOverview(
   payload: unknown
 ): ReproductiveOverview {
@@ -225,56 +254,77 @@ export function normalizeReproductiveOverview(
     .filter((item): item is SeasonReproductionMetric => item !== null)
     .sort((a, b) => a.seasonKey.localeCompare(b.seasonKey));
 
-  const totalExposed = seasons.reduce((acc, s) => acc + s.exposedFemales, 0);
-  const totalDiagnosed = seasons.reduce((acc, s) => acc + s.diagnosed, 0);
-  const totalPregnant = seasons.reduce((acc, s) => acc + s.pregnant, 0);
-  const totalBirths = seasons.reduce((acc, s) => acc + s.births, 0);
-  const totalOffspringBorn = seasons.reduce((acc, s) => acc + s.offspringBorn, 0);
+  // Use diagnosed coverage when all pregnancy-reporting seasons have diagnosed > 0;
+  // if diagnosed coverage is incomplete across seasons, prefer consistent exposed-female
+  // coverage when complete, otherwise sum only seasons with diagnosed > 0.
+  const hasDiagnosedCoverage = seasons.some((s) => s.diagnosed > 0);
+  const hasIncompleteDiagnosed = seasons.some(
+    (s) => s.pregnant > 0 && s.diagnosed === 0
+  );
+  const hasCompleteExposed =
+    seasons.some((s) => s.exposedFemales > 0) &&
+    !seasons.some((s) => s.pregnant > 0 && s.exposedFemales === 0);
 
-  const overallPregnancyPct =
-    totalDiagnosed > 0
-      ? roundTo((totalPregnant / totalDiagnosed) * 100, 1)
-      : totalExposed > 0
-        ? roundTo((totalPregnant / totalExposed) * 100, 1)
-        : averageNonNull(
-            seasons.map((s) => s.pregnancyPct),
-            1
-          );
-
-  const overallBirthsPerPregnantPct =
-    totalPregnant > 0
-      ? roundTo((totalBirths / totalPregnant) * 100, 1)
-      : averageNonNull(
-          seasons.map((s) => s.birthsPerPregnantPct),
+  const pregnancyAgg =
+    hasDiagnosedCoverage && (!hasIncompleteDiagnosed || !hasCompleteExposed)
+      ? aggregateMatchedRatio(
+          seasons,
+          (s) => s.pregnant,
+          (s) => s.diagnosed,
+          (s) => s.pregnancyPct,
+          'diagn.',
+          100,
+          1
+        )
+      : aggregateMatchedRatio(
+          seasons,
+          (s) => s.pregnant,
+          (s) => s.exposedFemales,
+          (s) => s.pregnancyPct,
+          'expuestas',
+          100,
           1
         );
 
-  const overallBirthsPerExposedPct =
-    totalExposed > 0
-      ? roundTo((totalBirths / totalExposed) * 100, 1)
-      : averageNonNull(
-          seasons.map((s) => s.birthsPerExposedPct),
-          1
-        );
+  const birthsPerPregnantAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.births,
+    (s) => s.pregnant,
+    (s) => s.birthsPerPregnantPct,
+    'preñadas',
+    100,
+    1
+  );
 
-  const overallProlificity =
-    totalBirths > 0
-      ? roundTo(totalOffspringBorn / totalBirths, 2)
-      : averageNonNull(
-          seasons.map((s) => s.prolificity),
-          2
-        );
+  const birthsPerExposedAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.births,
+    (s) => s.exposedFemales,
+    (s) => s.birthsPerExposedPct,
+    'expuestas',
+    100,
+    1
+  );
+
+  const prolificityAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.offspringBorn,
+    (s) => s.births,
+    (s) => s.prolificity,
+    'partos',
+    1,
+    2
+  );
 
   return {
     seasons,
-    totalExposed,
-    totalDiagnosed,
-    totalPregnant,
-    totalBirths,
-    totalOffspringBorn,
-    overallPregnancyPct,
-    overallBirthsPerPregnantPct,
-    overallBirthsPerExposedPct,
-    overallProlificity,
+    overallPregnancyPct: pregnancyAgg.value,
+    pregnancyRatio: pregnancyAgg.ratio,
+    overallBirthsPerPregnantPct: birthsPerPregnantAgg.value,
+    birthsPerPregnantRatio: birthsPerPregnantAgg.ratio,
+    overallBirthsPerExposedPct: birthsPerExposedAgg.value,
+    birthsPerExposedRatio: birthsPerExposedAgg.ratio,
+    overallProlificity: prolificityAgg.value,
+    prolificityRatio: prolificityAgg.ratio,
   };
 }
