@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getSessionGeneration } from '../../api/client';
 import { ModalDialog } from '../../components/ModalDialog';
 import {
+  associationAuditsQueryKey,
   fetchRanchParentAnimalsPage,
   RanchAnimalOption,
   RecordedBirthAuditSummary,
@@ -365,9 +366,11 @@ export function BirthAuditModal({
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['births', username, submissionRanchId] }),
+        qc.invalidateQueries({
+          queryKey: associationAuditsQueryKey(username, submissionRanchId),
+        }),
         qc.invalidateQueries({ queryKey: ['animals', username, submissionRanchId] }),
       ]);
-      // TODO(WEB-017): invalidar también el queryKey exacto del historial de auditoría cuando exista el lector.
 
       if (isCurrentForm()) onSuccess(summary);
     } catch (err) {
