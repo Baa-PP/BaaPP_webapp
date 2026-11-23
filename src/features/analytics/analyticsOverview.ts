@@ -18,6 +18,45 @@ export interface RatioAggregate {
   denominatorLabel: string;
 }
 
+export type SuggestedDestination = 'CULL' | 'SELL' | 'BREEDING';
+
+export interface UnproductiveFemaleAlert {
+  key: string;
+  animalId: string | null;
+  folioInterno: string;
+  ageDays: number | null;
+  breedings: number | null;
+  diagnosed: number | null;
+  pregnantCount: number | null;
+  pregnancyPct: number | null;
+  births: number | null;
+  offspringBorn: number | null;
+  offspringDead: number | null;
+  mortalityPct: number | null;
+  lastBirthDate: string | null;
+  daysSinceLastBirth: number | null;
+  pregnant: boolean | null;
+  unproductive: boolean;
+  suggestion: SuggestedDestination | null;
+  consecutiveLambDeaths: number | null;
+  hasConsecutiveMortality: boolean;
+  hasHighMortality: boolean;
+  hasProlongedInfertility: boolean;
+  alertReason: string | null;
+  isAlertCandidate: boolean;
+}
+
+export interface UnproductiveFemalesSummary {
+  items: UnproductiveFemaleAlert[];
+  alertItems: UnproductiveFemaleAlert[];
+  cullCount: number;
+  sellCount: number;
+  breedingCount: number;
+  mortalityAlertCount: number;
+  consecutiveMortalityCount: number;
+  infertilityAlertCount: number;
+}
+
 export interface ReproductiveOverview {
   seasons: SeasonReproductionMetric[];
   overallPregnancyPct: number | null;
@@ -28,6 +67,7 @@ export interface ReproductiveOverview {
   birthsPerExposedRatio: RatioAggregate | null;
   overallProlificity: number | null;
   prolificityRatio: RatioAggregate | null;
+  unproductive: UnproductiveFemalesSummary;
 }
 
 function toNonEmptyString(...values: unknown[]): string | undefined {
@@ -42,9 +82,31 @@ function toNonEmptyString(...values: unknown[]): string | undefined {
 
 function toOptionalFiniteNumber(...values: unknown[]): number | null {
   for (const v of values) {
-    if (v === null || v === undefined || v === '') continue;
+    if (v === null || v === undefined || v === '' || typeof v === 'boolean') {
+      continue;
+    }
     const n = typeof v === 'number' ? v : Number(v);
     if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function toOptionalBoolean(...values: unknown[]): boolean | null {
+  for (const v of values) {
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'number') {
+      if (v === 1) return true;
+      if (v === 0) return false;
+    }
+    if (typeof v === 'string') {
+      const normalized = v.trim().toLowerCase();
+      if (normalized === 'true' || normalized === '1' || normalized === 'si' || normalized === 'sí') {
+        return true;
+      }
+      if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+        return false;
+      }
+    }
   }
   return null;
 }
@@ -230,18 +292,403 @@ function aggregateMatchedRatio(
   };
 }
 
-export function normalizeReproductiveOverview(
-  payload: unknown
-): ReproductiveOverview {
-  const root =
+function unwrapAnalyticsRoot(payload: unknown): unknown {
+  if (
     payload &&
     typeof payload === 'object' &&
     !Array.isArray(payload) &&
     'data' in (payload as Record<string, unknown>) &&
     (payload as Record<string, unknown>).data &&
     typeof (payload as Record<string, unknown>).data === 'object'
-      ? (payload as Record<string, unknown>).data
-      : payload;
+  ) {
+    return (payload as Record<string, unknown>).data;
+  }
+  return payload;
+}
+
+export function normalizeSuggestedDestination(
+  ...values: unknown[]
+): SuggestedDestination | null {
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const upper = v.trim().toUpperCase();
+    if (!upper) continue;
+    if (
+      upper === 'CULL' ||
+      upper === 'DESECHO' ||
+      upper === 'RASTRO' ||
+      upper === 'DESECHO_RASTRO' ||
+      upper === 'DESECHO A RASTRO'
+    ) {
+      return 'CULL';
+    }
+    if (upper === 'SELL' || upper === 'VENTA') {
+      return 'SELL';
+    }
+    if (
+      upper === 'BREEDING' ||
+      upper === 'EMPADRE' ||
+      upper === 'CRIA' ||
+      upper === 'CRÍA' ||
+      upper === 'KEEP' ||
+      upper === 'MANTENER'
+    ) {
+      return 'BREEDING';
+    }
+  }
+  return null;
+}
+
+function looksLikeFemaleAlertRow(item: unknown): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const obj = item as Record<string, unknown>;
+  return (
+    'animalId' in obj ||
+    'animal_id' in obj ||
+    'femaleId' in obj ||
+    'female_id' in obj ||
+    'folioInterno' in obj ||
+    'folio_interno' in obj ||
+    'suggestion' in obj ||
+    'destino_sugerido' in obj ||
+    'destinoSugerido' in obj ||
+    'unproductive' in obj ||
+    'improductiva' in obj
+  );
+}
+
+export function normalizeUnproductiveFemale(
+  raw: unknown,
+  index: number
+): UnproductiveFemaleAlert | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+
+  const animalId =
+    toNonEmptyString(
+      obj.animalId,
+      obj.animal_id,
+      obj.femaleId,
+      obj.female_id,
+      obj.id
+    ) ?? null;
+  const rawFolio = toNonEmptyString(
+    obj.folioInterno,
+    obj.folio_interno,
+    obj.folio,
+    obj.earTag,
+    obj.ear_tag,
+    obj.arete
+  );
+  const ageDays = toOptionalNonNegativeCount(
+    obj.ageDays,
+    obj.age_days,
+    obj.edad_dias,
+    obj.edadDias
+  );
+  const suggestion = normalizeSuggestedDestination(
+    obj.suggestion,
+    obj.destino_sugerido,
+    obj.destinoSugerido,
+    obj.suggestedDestination,
+    obj.suggested_destination,
+    obj.destination,
+    obj.destino
+  );
+  const explicitUnproductive = toOptionalBoolean(
+    obj.unproductive,
+    obj.improductiva,
+    obj.es_improductiva,
+    obj.esImproductiva
+  );
+
+  if (
+    !animalId &&
+    !rawFolio &&
+    suggestion === null &&
+    explicitUnproductive === null &&
+    ageDays === null
+  ) {
+    return null;
+  }
+
+  const folioInterno =
+    rawFolio ??
+    (animalId ? `ID ${animalId.slice(0, 8)}` : `Vientre #${index + 1}`);
+
+  const breedings = toOptionalNonNegativeCount(
+    obj.breedings,
+    obj.breedingsCount,
+    obj.breedings_count,
+    obj.empadres
+  );
+  const diagnosed = toOptionalNonNegativeCount(
+    obj.diagnosed,
+    obj.diagnosedCount,
+    obj.diagnosed_count,
+    obj.diagnosticados,
+    obj.diagnosticadas
+  );
+  const pregnantCount = toOptionalNonNegativeCount(
+    obj.pregnantCount,
+    obj.pregnant_count,
+    obj.prenadas
+  );
+  const births = toOptionalNonNegativeCount(
+    obj.births,
+    obj.birthsCount,
+    obj.births_count,
+    obj.partos
+  );
+  const offspringBorn = toOptionalNonNegativeCount(
+    obj.offspringBorn,
+    obj.offspring_born,
+    obj.lambsBorn,
+    obj.lambs_born,
+    obj.crias_nacidas,
+    obj.criasNacidas
+  );
+  const offspringDead = toOptionalNonNegativeCount(
+    obj.offspringDead,
+    obj.offspring_dead,
+    obj.lambsDead,
+    obj.lambs_dead,
+    obj.lambsDeceased,
+    obj.lambs_deceased,
+    obj.crias_muertas,
+    obj.criasMuertas
+  );
+
+  const explicitPregnancyPct = toOptionalFiniteNumber(
+    obj.pregnancyPct,
+    obj.pregnancy_pct,
+    obj.pct_prenez,
+    obj.pctPrenez
+  );
+  const pregnancyPct =
+    explicitPregnancyPct !== null
+      ? roundTo(explicitPregnancyPct, 1)
+      : pregnantCount !== null && diagnosed !== null && diagnosed > 0
+        ? roundTo((pregnantCount / diagnosed) * 100, 1)
+        : null;
+
+  const explicitMortalityPct = toOptionalFiniteNumber(
+    obj.mortalityPct,
+    obj.mortality_pct,
+    obj.pct_mortalidad,
+    obj.pctMortalidad
+  );
+  const mortalityPct =
+    explicitMortalityPct !== null
+      ? roundTo(explicitMortalityPct, 1)
+      : offspringDead !== null && offspringBorn !== null && offspringBorn > 0
+        ? roundTo((offspringDead / offspringBorn) * 100, 1)
+        : null;
+
+  const lastBirthDate =
+    toNonEmptyString(
+      obj.lastBirthDate,
+      obj.last_birth_date,
+      obj.ultimo_parto,
+      obj.ultimoParto
+    ) ?? null;
+  const daysSinceLastBirth = toOptionalNonNegativeCount(
+    obj.daysSinceLastBirth,
+    obj.days_since_last_birth,
+    obj.dias_desde_ultimo_parto,
+    obj.diasDesdeUltimoParto
+  );
+  const pregnant = toOptionalBoolean(
+    obj.pregnant,
+    obj.isPregnant,
+    obj.is_pregnant,
+    obj.cargada
+  );
+  const consecutiveLambDeaths = toOptionalNonNegativeCount(
+    obj.consecutiveLambDeaths,
+    obj.consecutive_lamb_deaths,
+    obj.consecutiveDeaths,
+    obj.consecutive_deaths,
+    obj.muertes_consecutivas,
+    obj.muertesConsecutivas
+  );
+  const explicitConsecutiveMortality = toOptionalBoolean(
+    obj.consecutiveMortality,
+    obj.consecutive_mortality,
+    obj.hasConsecutiveMortality,
+    obj.has_consecutive_mortality,
+    obj.mortalidad_consecutiva,
+    obj.mortalidadConsecutiva
+  );
+  const explicitInfertility = toOptionalBoolean(
+    obj.prolongedInfertility,
+    obj.prolonged_infertility,
+    obj.hasProlongedInfertility,
+    obj.has_prolonged_infertility,
+    obj.infertilidad_prolongada,
+    obj.infertilidadProlongada
+  );
+  const alertReason =
+    toNonEmptyString(obj.alertReason, obj.alert_reason, obj.reason, obj.motivo) ??
+    null;
+
+  const unproductive =
+    explicitUnproductive ?? (suggestion === 'CULL' || suggestion === 'SELL');
+
+  const hasConsecutiveMortality =
+    explicitConsecutiveMortality === true ||
+    (consecutiveLambDeaths !== null && consecutiveLambDeaths >= 2) ||
+    (alertReason !== null && /consecutiv/i.test(alertReason));
+
+  const hasHighMortality =
+    hasConsecutiveMortality ||
+    (mortalityPct !== null && mortalityPct > 30) ||
+    (offspringDead !== null &&
+      offspringDead >= 2 &&
+      offspringBorn !== null &&
+      offspringBorn > 0 &&
+      offspringDead / offspringBorn > 0.3);
+
+  const hasProlongedInfertility =
+    explicitInfertility !== null
+      ? explicitInfertility
+      : (daysSinceLastBirth !== null &&
+          daysSinceLastBirth > 365 &&
+          pregnant !== true) ||
+        (ageDays !== null && ageDays > 600 && births === 0 && pregnant !== true) ||
+        (diagnosed !== null &&
+          diagnosed >= 2 &&
+          pregnancyPct !== null &&
+          pregnancyPct < 50) ||
+        (pregnancyPct !== null &&
+          pregnancyPct === 0 &&
+          (births === null || births === 0) &&
+          pregnant !== true) ||
+        (unproductive && !hasHighMortality) ||
+        (alertReason !== null &&
+          /(infert|sin parir|sin parto|gestar|abierta|vac[ií]a)/i.test(alertReason));
+
+  const isAlertCandidate =
+    suggestion === 'CULL' ||
+    suggestion === 'SELL' ||
+    unproductive ||
+    hasHighMortality ||
+    hasProlongedInfertility;
+
+  return {
+    key: animalId ? `${animalId}-${index}` : `${folioInterno}-${index}`,
+    animalId,
+    folioInterno,
+    ageDays,
+    breedings,
+    diagnosed,
+    pregnantCount,
+    pregnancyPct,
+    births,
+    offspringBorn,
+    offspringDead,
+    mortalityPct,
+    lastBirthDate,
+    daysSinceLastBirth,
+    pregnant,
+    unproductive,
+    suggestion,
+    consecutiveLambDeaths,
+    hasConsecutiveMortality,
+    hasHighMortality,
+    hasProlongedInfertility,
+    alertReason,
+    isAlertCandidate,
+  };
+}
+
+function getAlertPriorityRank(item: UnproductiveFemaleAlert): number {
+  if (item.suggestion === 'CULL') return 0;
+  if (item.suggestion === 'SELL') return 1;
+  if (item.isAlertCandidate && item.suggestion !== 'BREEDING') return 2;
+  if (item.isAlertCandidate) return 3;
+  return 4;
+}
+
+export function normalizeUnproductiveFemalesOverview(
+  payload: unknown
+): UnproductiveFemalesSummary {
+  const root = unwrapAnalyticsRoot(payload);
+
+  let rawFemales: unknown[] = [];
+  if (Array.isArray(root)) {
+    rawFemales = root.filter(looksLikeFemaleAlertRow);
+  } else if (root && typeof root === 'object') {
+    const obj = root as Record<string, unknown>;
+    const candidate =
+      obj.unproductiveFemales ??
+      obj.unproductive_females ??
+      obj.vientresImproductivos ??
+      obj.vientres_improductivos ??
+      obj.hembrasImproductivas ??
+      obj.hembras_improductivas ??
+      obj.unproductiveEweAlerts ??
+      obj.unproductiveAlerts ??
+      (Array.isArray(obj.alerts) && obj.alerts.some(looksLikeFemaleAlertRow)
+        ? obj.alerts
+        : undefined);
+    if (Array.isArray(candidate)) {
+      rawFemales = candidate;
+    }
+  }
+
+  const items = rawFemales
+    .map((item, idx) => normalizeUnproductiveFemale(item, idx))
+    .filter((item): item is UnproductiveFemaleAlert => item !== null)
+    .sort((a, b) => {
+      const rankDiff = getAlertPriorityRank(a) - getAlertPriorityRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      if (a.hasConsecutiveMortality !== b.hasConsecutiveMortality) {
+        return a.hasConsecutiveMortality ? -1 : 1;
+      }
+      if (a.hasHighMortality !== b.hasHighMortality) {
+        return a.hasHighMortality ? -1 : 1;
+      }
+      const mortDiff = (b.mortalityPct ?? -1) - (a.mortalityPct ?? -1);
+      if (mortDiff !== 0) return mortDiff;
+      if (a.hasProlongedInfertility !== b.hasProlongedInfertility) {
+        return a.hasProlongedInfertility ? -1 : 1;
+      }
+      const daysOpenDiff =
+        (b.daysSinceLastBirth ?? b.ageDays ?? -1) -
+        (a.daysSinceLastBirth ?? a.ageDays ?? -1);
+      if (daysOpenDiff !== 0) return daysOpenDiff;
+      return a.folioInterno.localeCompare(b.folioInterno, 'es-MX', {
+        numeric: true,
+      });
+    });
+
+  const alertItems = items.filter((item) => item.isAlertCandidate);
+
+  return {
+    items,
+    alertItems,
+    cullCount: alertItems.filter((item) => item.suggestion === 'CULL').length,
+    sellCount: alertItems.filter((item) => item.suggestion === 'SELL').length,
+    breedingCount: items.filter(
+      (item) => item.suggestion === 'BREEDING' && !item.isAlertCandidate
+    ).length,
+    mortalityAlertCount: alertItems.filter(
+      (item) => item.hasConsecutiveMortality || item.hasHighMortality
+    ).length,
+    consecutiveMortalityCount: alertItems.filter(
+      (item) => item.hasConsecutiveMortality
+    ).length,
+    infertilityAlertCount: alertItems.filter(
+      (item) => item.hasProlongedInfertility
+    ).length,
+  };
+}
+
+export function normalizeReproductiveOverview(
+  payload: unknown
+): ReproductiveOverview {
+  const root = unwrapAnalyticsRoot(payload);
 
   let rawSeasons: unknown[] = [];
   if (Array.isArray(root)) {
@@ -345,5 +792,6 @@ export function normalizeReproductiveOverview(
     birthsPerExposedRatio: birthsPerExposedAgg.ratio,
     overallProlificity: prolificityAgg.value,
     prolificityRatio: prolificityAgg.ratio,
+    unproductive: normalizeUnproductiveFemalesOverview(payload),
   };
 }

@@ -1,12 +1,8 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { apiFetch, type ApiError } from '../../api/client';
 import { RanchContextNotice } from '../../components/RanchContextNotice';
 import { EChartPanel, type EChartsOption } from './EChartPanel';
-import {
-  normalizeReproductiveOverview,
-  type SeasonReproductionMetric,
-} from './analyticsOverview';
+import { type SeasonReproductionMetric } from './analyticsOverview';
+import { useAnalyticsOverview } from './useAnalyticsOverview';
 
 export interface ReproductiveAnalyticsViewProps {
   username: string;
@@ -299,19 +295,16 @@ export function ReproductiveAnalyticsView({
   ranchesError,
   onRetryRanches,
 }: ReproductiveAnalyticsViewProps) {
-  const overviewQuery = useQuery({
-    queryKey: ['analytics', 'overview', username, activeRanchId] as const,
-    queryFn: async ({ queryKey }) => {
-      const ranchId = queryKey[3];
-      const res = await apiFetch<unknown>('/analytics/overview', {
-        ranchId: ranchId ?? undefined,
-      });
-      return normalizeReproductiveOverview(res);
-    },
-    enabled: Boolean(activeRanchId),
-  });
+  const { query: overviewQuery, overview, loading, errorMessage } =
+    useAnalyticsOverview(
+      username,
+      activeRanchId,
+      'los indicadores reproductivos'
+    );
 
-  const seasons = overviewQuery.data?.seasons ?? [];
+  const seasons = overview?.seasons ?? [];
+  const unproductive = overview?.unproductive;
+  const unproductiveAlertCount = unproductive?.alertItems.length ?? 0;
 
   const pregnancyOption = useMemo(
     () => buildPregnancyOption(seasons),
@@ -339,19 +332,6 @@ export function ReproductiveAnalyticsView({
     );
   }
 
-  const overview = overviewQuery.data;
-  const loading = overviewQuery.isFetching;
-  const rawError = overviewQuery.error;
-  const errorStatus = (rawError as Partial<ApiError> | null)?.status;
-  const errorMessage =
-    rawError instanceof Error
-      ? errorStatus === 403 && rawError.message === 'HTTP 403'
-        ? 'Tu cuenta no tiene permisos para consultar los indicadores reproductivos de este rancho.'
-        : rawError.message
-      : overviewQuery.isError
-        ? 'No se pudieron cargar los indicadores reproductivos del rancho activo.'
-        : '';
-
   return (
     <div className="analytics-view">
       <div className="title-row">
@@ -371,6 +351,36 @@ export function ReproductiveAnalyticsView({
           <span>{seasons.length === 1 ? 'temporada' : 'temporadas'}</span>
         </div>
       </div>
+
+      {!errorMessage && !overviewQuery.isLoading && unproductive && unproductiveAlertCount > 0 && (
+        <section
+          className="analytics-alert-banner"
+          role="region"
+          aria-label="Resumen de alertas de vientres improductivos"
+        >
+          <div className="analytics-alert-banner-copy">
+            <strong>
+              {unproductiveAlertCount}{' '}
+              {unproductiveAlertCount === 1
+                ? 'vientre improductivo detectado'
+                : 'vientres improductivos detectados'}
+            </strong>
+            <p>
+              {unproductive.cullCount} CULL (desecho a rastro) ·{' '}
+              {unproductive.sellCount} SELL (venta)
+              {unproductive.mortalityAlertCount > 0
+                ? ` · ${unproductive.mortalityAlertCount} con mortalidad crítica`
+                : ''}
+              {unproductive.infertilityAlertCount > 0
+                ? ` · ${unproductive.infertilityAlertCount} con infertilidad prolongada`
+                : ''}
+            </p>
+          </div>
+          <a className="secondary-button" href="#/vientres-improductivos">
+            Abrir tablero CULL / SELL
+          </a>
+        </section>
+      )}
 
       {errorMessage ? (
         <section className="analytics-error" role="alert">

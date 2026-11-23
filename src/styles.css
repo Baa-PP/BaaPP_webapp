@@ -1809,6 +1809,178 @@ td small,
   color: var(--text-primary);
 }
 
+/* --- WEB-025: Tablero de alertas de vientres improductivos (CULL/SELL) --- */
+.analytics-kpi-danger {
+  border-color: #FECACA;
+  background: linear-gradient(180deg, #FFF5F5 0%, var(--surface-base) 100%);
+}
+
+.analytics-kpi-danger .analytics-kpi-value {
+  color: var(--semantic-danger);
+}
+
+.analytics-kpi-warning {
+  border-color: #FDE68A;
+  background: linear-gradient(180deg, #FFFBEB 0%, var(--surface-base) 100%);
+}
+
+.analytics-kpi-warning .analytics-kpi-value {
+  color: var(--semantic-warning);
+}
+
+.analytics-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #FFFBEB;
+  border: 1px solid #F59E0B;
+  border-left: 4px solid var(--semantic-warning);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.analytics-alert-banner-copy strong {
+  display: block;
+  font-size: 14px;
+  color: #92400E;
+}
+
+.analytics-alert-banner-copy p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-alert-banner a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-alerts-filters {
+  margin-bottom: 0;
+}
+
+.analytics-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.analytics-alert-row-danger td:first-child {
+  border-left: 4px solid var(--semantic-danger);
+}
+
+.analytics-alert-row-warning td:first-child {
+  border-left: 4px solid var(--semantic-warning);
+}
+
+.analytics-trigger-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analytics-trigger-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.analytics-trigger-item small {
+  margin-top: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.analytics-trigger-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.analytics-trigger-badge.badge-danger {
+  background: var(--semantic-danger-bg);
+  color: var(--semantic-danger);
+  border: 1px solid #FECACA;
+}
+
+.analytics-trigger-badge.badge-warning {
+  background: #FFFBEB;
+  color: #92400E;
+  border: 1px solid #FDE68A;
+}
+
+.analytics-trigger-neutral {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-custom-reason {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.analytics-mortality-high {
+  color: var(--semantic-danger);
+}
+
+.analytics-dest-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 5px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  min-width: 118px;
+}
+
+.analytics-dest-badge strong {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.analytics-dest-badge span {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.analytics-dest-badge.dest-cull {
+  background: var(--semantic-danger-bg);
+  border-color: var(--semantic-danger);
+  color: var(--semantic-danger);
+}
+
+.analytics-dest-badge.dest-sell {
+  background: #FFFBEB;
+  border-color: var(--semantic-warning);
+  color: #92400E;
+}
+
+.analytics-dest-badge.dest-breeding {
+  background: #F0FDF4;
+  border-color: var(--semantic-success);
+  color: var(--semantic-success);
+}
+
+.analytics-dest-badge.dest-review {
+  background: var(--surface-support);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
 @media (max-width: 1000px) {
   .analytics-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1817,10 +1989,18 @@ td small,
   .analytics-charts-grid {
     grid-template-columns: 1fr;
   }
+
+  .analytics-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 640px) {
   .analytics-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-filter-grid {
     grid-template-columns: 1fr;
   }
 }
