@@ -401,6 +401,7 @@ export function BirthsView({
   const [lastAuditSummary, setLastAuditSummary] =
     useState<RecordedBirthAuditSummary | null>(null);
 
+  const monthFilterRef = useRef<HTMLInputElement | null>(null);
   const evidenceTriggerRef = useRef<HTMLElement | null>(null);
   const auditTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -649,6 +650,7 @@ export function BirthsView({
             Mes de parto
           </label>
           <input
+            ref={monthFilterRef}
             id="births-month-filter"
             type="month"
             className="births-month-input"
@@ -833,7 +835,7 @@ export function BirthsView({
                           onClick={(e) =>
                             openAuditModal('correct', b, e.currentTarget)
                           }
-                          aria-label={`Corregir con auditoría el parto de ${b.damLabel} (${formatDate(b.birthDate)})`}
+                          aria-label={`${b.isLocked ? 'Corregir (auditado)' : 'Auditar'} parto de ${b.damLabel} (${formatDate(b.birthDate)})`}
                         >
                           {b.isLocked ? 'Corregir (auditado)' : 'Auditar'}
                         </button>
@@ -867,6 +869,7 @@ export function BirthsView({
         }
         closeLabel="Cerrar visor"
         triggerRef={evidenceTriggerRef}
+        fallbackFocusRef={monthFilterRef}
       >
         {selectedEvidence && (
           <>
@@ -947,6 +950,8 @@ export function BirthsView({
           localDateKey={localDateKey}
           birth={auditModal?.birth ?? null}
           triggerRef={auditTriggerRef}
+          fallbackFocusRef={monthFilterRef}
+          username={username}
           onClose={closeAuditModal}
           onSuccess={(summary) => {
             setLastAuditSummary(summary);

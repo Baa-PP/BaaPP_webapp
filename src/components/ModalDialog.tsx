@@ -29,6 +29,7 @@ export interface ModalDialogProps {
   closeLabel?: string;
   disableClose?: boolean;
   triggerRef?: RefObject<HTMLElement | null>;
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
   cardClassName?: string;
   children: ReactNode;
 }
@@ -46,6 +47,7 @@ export function ModalDialog({
   closeLabel = 'Cerrar diálogo',
   disableClose = false,
   triggerRef,
+  fallbackFocusRef,
   cardClassName,
   children,
 }: ModalDialogProps) {
@@ -54,25 +56,14 @@ export function ModalDialog({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   const disableCloseRef = useRef(disableClose);
-  const wasOpenRef = useRef(false);
 
   onCloseRef.current = onClose;
   disableCloseRef.current = disableClose;
 
   useEffect(() => {
-    if (!open) {
-      if (wasOpenRef.current) {
-        wasOpenRef.current = false;
-        const trigger = triggerRef?.current ?? null;
-        if (triggerRef) triggerRef.current = null;
-        if (trigger && trigger.isConnected) {
-          trigger.focus();
-        }
-      }
-      return;
-    }
-
-    wasOpenRef.current = true;
+    if (!open) return;
+    const trigger = triggerRef?.current ??
+      (document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
     const backdropEl = backdropRef.current;
     const savedBackground: Array<{
@@ -163,8 +154,14 @@ export function ModalDialog({
           item.el.setAttribute('aria-hidden', item.prevAriaHidden);
         }
       }
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+      if (document.activeElement !== trigger) {
+        fallbackFocusRef?.current?.focus();
+      }
     };
-  }, [open, triggerRef]);
+  }, [open, triggerRef, fallbackFocusRef]);
 
   if (!open) return null;
 

@@ -1,9 +1,10 @@
-import { ChangeEvent, FormEvent, RefObject, useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChangeEvent, FormEvent, RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getSessionGeneration } from '../../api/client';
 import { ModalDialog } from '../../components/ModalDialog';
 import {
-  fetchRanchParentAnimals,
+  fetchRanchParentAnimalsPage,
+  RanchAnimalOption,
   RecordedBirthAuditSummary,
   submitBirthAudit,
   uploadBirthEvidenceToS3,
@@ -18,9 +19,11 @@ export interface BirthAuditModalProps {
   mode: BirthAuditMode;
   activeRanchId: string;
   ranchName?: string;
+  username: string;
   localDateKey: string;
   birth: BirthRecord | null;
   triggerRef?: RefObject<HTMLElement | null>;
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
   onSuccess: (summary: RecordedBirthAuditSummary) => void;
 }
@@ -67,14 +70,50 @@ function formatFileSize(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+function useParentAnimals(ranchId: string, sex: 'FEMALE' | 'MALE', enabled: boolean) {
+  const query = useInfiniteQuery({
+    queryKey: [sex === 'FEMALE' ? 'birth-audit-dams' : 'birth-audit-sires', ranchId] as const,
+    queryFn: ({ queryKey, pageParam, signal }) =>
+      fetchRanchParentAnimalsPage(queryKey[1], sex, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextPage,
+    enabled,
+  });
+  const { data, fetchNextPage, hasNextPage, isFetching, isError } = query;
+
+  useEffect(() => {
+    if (enabled && hasNextPage && !isFetching && !isError) {
+      void fetchNextPage();
+    }
+  }, [data, enabled, fetchNextPage, hasNextPage, isFetching, isError]);
+
+  const unique = new Map<string, RanchAnimalOption>();
+  for (const page of data?.pages ?? []) {
+    for (const animal of page.items) unique.set(animal.id, animal);
+  }
+  const options = Array.from(unique.values()).sort((a, b) =>
+    a.folioInterno.localeCompare(b.folioInterno, 'es-MX', { numeric: true })
+  );
+
+  return {
+    options,
+    isLoading: query.isLoading,
+    isFetchingNextPage: query.isFetchingNextPage,
+    isError,
+    retry: query.isFetchNextPageError ? fetchNextPage : query.refetch,
+  };
+}
+
 export function BirthAuditModal({
   open,
   mode,
   activeRanchId,
   ranchName,
+  username,
   localDateKey,
   birth,
   triggerRef,
+  fallbackFocusRef,
   onClose,
   onSuccess,
 }: BirthAuditModalProps) {
@@ -88,7 +127,10 @@ export function BirthAuditModal({
   const [stillbornInput, setStillbornInput] = useState('0');
   const [conceptionMethod, setConceptionMethod] = useState('MN');
   const [reason, setReason] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [evidence, setEvidence] = useState<{ file: File; mimeType: string } | null>(null);
+  const selectedFile = evidence?.file ?? null;
+  const [checkingFile, setCheckingFile] = useState(false);
+  const fileCheckRef = useRef(0);
   const [uploadedPhoto, setUploadedPhoto] = useState<{
     file: File;
     ranchId: string;
@@ -102,8 +144,23 @@ export function BirthAuditModal({
   );
   const [fileInputKey, setFileInputKey] = useState(0);
 
-  const currentRanchRef = useRef(activeRanchId);
-  currentRanchRef.current = activeRanchId;
+  const formTokenRef = useRef<symbol | null>(null);
+  const uploadRef = useRef<AbortController | null>(null);
+
+  // Bind async work to this opening and the ranch and record it displays.
+  useLayoutEffect(() => {
+    formTokenRef.current = open ? Symbol() : null;
+    return () => {
+      formTokenRef.current = null;
+      uploadRef.current?.abort();
+    };
+  }, [open, mode, birth?.id, activeRanchId]);
+
+  function closeForm() {
+    formTokenRef.current = null;
+    uploadRef.current?.abort();
+    onClose();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -127,9 +184,10 @@ export function BirthAuditModal({
     }
 
     setReason('');
-    setSelectedFile(null);
+    setEvidence(null);
     setUploadedPhoto(null);
     setFileError('');
+    setCheckingFile(false);
     setFormError('');
     setSubmitStage('idle');
     setFileInputKey((k) => k + 1);
@@ -147,51 +205,40 @@ export function BirthAuditModal({
     };
   }, [selectedFile]);
 
-  const damsQuery = useQuery({
-    queryKey: ['birth-audit-dams', activeRanchId] as const,
-    queryFn: ({ queryKey }) => fetchRanchParentAnimals(queryKey[1], 'FEMALE'),
-    enabled: open && mode === 'create_late' && Boolean(activeRanchId),
-  });
-
-  const siresQuery = useQuery({
-    queryKey: ['birth-audit-sires', activeRanchId] as const,
-    queryFn: ({ queryKey }) => fetchRanchParentAnimals(queryKey[1], 'MALE'),
-    enabled: open && mode === 'create_late' && Boolean(activeRanchId),
-  });
+  const loadParents = open && mode === 'create_late' && Boolean(activeRanchId);
+  const damsQuery = useParentAnimals(activeRanchId, 'FEMALE', loadParents);
+  const siresQuery = useParentAnimals(activeRanchId, 'MALE', loadParents);
 
   const isSubmitting = submitStage !== 'idle';
   const trimmedReason = reason.trim();
   const hasPhotoAndReason = Boolean(selectedFile) && trimmedReason.length > 0;
   const deltaDays = birthDate ? computeDateDeltaDays(birthDate, localDateKey) : null;
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const picked = event.target.files?.[0] ?? null;
-    if (!picked) {
-      setSelectedFile(null);
-      setUploadedPhoto(null);
-      setFileError('');
-      return;
-    }
+    const checkId = ++fileCheckRef.current;
+    const formToken = formTokenRef.current;
+    setEvidence(null);
+    setUploadedPhoto(null);
+    setFileError('');
+    setCheckingFile(Boolean(picked));
+    if (!picked) return;
 
-    const check = validateEvidenceFile(picked);
-    if (!check.valid) {
-      setSelectedFile(null);
-      setUploadedPhoto(null);
+    const check = await validateEvidenceFile(picked);
+    if (fileCheckRef.current !== checkId || formTokenRef.current !== formToken) return;
+    setCheckingFile(false);
+    if (!check.valid || !check.mimeType) {
       setFileError(check.error ?? 'Fotografía no válida.');
       setFileInputKey((k) => k + 1);
       return;
     }
 
-    setFileError('');
     setFormError('');
-    setSelectedFile(picked);
-    if (uploadedPhoto && uploadedPhoto.file !== picked) {
-      setUploadedPhoto(null);
-    }
+    setEvidence({ file: picked, mimeType: check.mimeType });
   }
 
   function handleClearFile() {
-    setSelectedFile(null);
+    setEvidence(null);
     setUploadedPhoto(null);
     setFileError('');
     setFileInputKey((k) => k + 1);
@@ -199,7 +246,7 @@ export function BirthAuditModal({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || uploadRef.current || !formTokenRef.current) return;
 
     setFormError('');
 
@@ -223,6 +270,11 @@ export function BirthAuditModal({
       return;
     }
 
+    if (mode === 'create_late' && deltaDays <= 30) {
+      setFormError('El alta extemporánea solo admite partos de hace más de 30 días.');
+      return;
+    }
+
     const liveBornCount = parseNonNegativeInt(liveBornInput);
     const stillbornCount = parseNonNegativeInt(stillbornInput);
     if (liveBornCount === null || stillbornCount === null) {
@@ -235,12 +287,8 @@ export function BirthAuditModal({
       return;
     }
 
-    const fileValidation = validateEvidenceFile(selectedFile);
-    if (!fileValidation.valid || !selectedFile || !fileValidation.mimeType) {
-      setFormError(
-        fileValidation.error ??
-          'La fotografía de evidencia es obligatoria para guardar la auditoría.'
-      );
+    if (!evidence) {
+      setFormError('La fotografía de evidencia es obligatoria para guardar la auditoría.');
       return;
     }
 
@@ -251,35 +299,41 @@ export function BirthAuditModal({
 
     const submissionRanchId = activeRanchId;
     const startGeneration = getSessionGeneration();
+    const formToken = formTokenRef.current;
+    const sameSession = () => getSessionGeneration() === startGeneration;
+    const isCurrentForm = () => sameSession() && formTokenRef.current === formToken;
 
     try {
       let s3Key =
         uploadedPhoto &&
-        uploadedPhoto.file === selectedFile &&
+        uploadedPhoto.file === evidence.file &&
         uploadedPhoto.ranchId === submissionRanchId
           ? uploadedPhoto.s3Key
           : '';
 
       if (!s3Key) {
         setSubmitStage('uploading');
-        s3Key = await uploadBirthEvidenceToS3(
-          selectedFile,
-          fileValidation.mimeType,
-          submissionRanchId
-        );
-
-        if (
-          getSessionGeneration() !== startGeneration ||
-          currentRanchRef.current !== submissionRanchId
-        ) {
-          return;
+        const controller = new AbortController();
+        uploadRef.current = controller;
+        try {
+          s3Key = await uploadBirthEvidenceToS3(
+            evidence.file,
+            evidence.mimeType,
+            submissionRanchId,
+            controller
+          );
+          controller.signal.throwIfAborted();
+        } finally {
+          if (uploadRef.current === controller) uploadRef.current = null;
         }
-        setUploadedPhoto({ file: selectedFile, ranchId: submissionRanchId, s3Key });
+
+        if (!isCurrentForm()) return;
+        setUploadedPhoto({ file: evidence.file, ranchId: submissionRanchId, s3Key });
       }
 
       setSubmitStage('saving');
 
-      const selectedDam = damsQuery.data?.find((d) => d.id === damId);
+      const selectedDam = damsQuery.options.find((d) => d.id === damId);
       const damLabel =
         mode === 'correct' && birth
           ? birth.damLabel
@@ -307,39 +361,24 @@ export function BirthAuditModal({
         previousBirthDate: birth ? toDateInputValue(birth.birthDate) || birth.birthDate : undefined,
       });
 
-      if (
-        getSessionGeneration() !== startGeneration ||
-        currentRanchRef.current !== submissionRanchId
-      ) {
-        return;
-      }
+      if (!sameSession()) return;
 
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ['births'] }),
+        qc.invalidateQueries({ queryKey: ['births', username, submissionRanchId] }),
         qc.invalidateQueries({ queryKey: ['association-audits'] }),
         qc.invalidateQueries({ queryKey: ['animals'] }),
       ]);
 
-      onSuccess(summary);
+      if (isCurrentForm()) onSuccess(summary);
     } catch (err) {
-      if (
-        getSessionGeneration() !== startGeneration ||
-        currentRanchRef.current !== submissionRanchId
-      ) {
-        return;
-      }
+      if (!isCurrentForm() || (err instanceof DOMException && err.name === 'AbortError')) return;
       setFormError(
         err instanceof Error
           ? err.message
           : 'No se pudo registrar la corrección auditada.'
       );
     } finally {
-      if (
-        getSessionGeneration() === startGeneration &&
-        currentRanchRef.current === submissionRanchId
-      ) {
-        setSubmitStage('idle');
-      }
+      if (isCurrentForm()) setSubmitStage('idle');
     }
   }
 
@@ -360,19 +399,20 @@ export function BirthAuditModal({
       </>
     );
 
-  const dams = damsQuery.data ?? [];
-  const sires = siresQuery.data ?? [];
+  const dams = damsQuery.options;
+  const sires = siresQuery.options;
 
   return (
     <ModalDialog
       open={open}
-      onClose={onClose}
+      onClose={closeForm}
       titleId="birth-audit-modal-title"
       title={title}
       subtitle={subtitle}
       closeLabel="Cerrar formulario de auditoría"
-      disableClose={isSubmitting}
+      disableClose={submitStage === 'saving'}
       triggerRef={triggerRef}
+      fallbackFocusRef={fallbackFocusRef}
       cardClassName="birth-audit-modal-card"
     >
       <form className="birth-audit-form" onSubmit={handleSubmit} noValidate>
@@ -413,13 +453,14 @@ export function BirthAuditModal({
                       </option>
                     ))}
                   </select>
+                  {damsQuery.isFetchingNextPage && <small role="status">Cargando más hembras…</small>}
                   {damsQuery.isError && (
                     <span className="birth-audit-inline-error">
                       No se pudo cargar el catálogo de hembras.{' '}
                       <button
                         type="button"
                         className="link-button"
-                        onClick={() => void damsQuery.refetch()}
+                        onClick={() => void damsQuery.retry()}
                       >
                         Reintentar
                       </button>
@@ -447,6 +488,19 @@ export function BirthAuditModal({
                       </option>
                     ))}
                   </select>
+                  {siresQuery.isFetchingNextPage && <small role="status">Cargando más sementales…</small>}
+                  {siresQuery.isError && (
+                    <span className="birth-audit-inline-error">
+                      No se pudo cargar el catálogo de sementales.{' '}
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => void siresQuery.retry()}
+                      >
+                        Reintentar
+                      </button>
+                    </span>
+                  )}
                 </label>
 
                 {!sireId && (
@@ -481,8 +535,7 @@ export function BirthAuditModal({
                   deltaDays >= 0 &&
                   deltaDays <= 30 && (
                     <small className="birth-audit-hint">
-                      Nota: hace {deltaDays} {deltaDays === 1 ? 'día' : 'días'} aún
-                      se encuentra en ventana de 30 días, también se auditará al guardar.
+                      El alta extemporánea solo admite partos de hace más de 30 días.
                     </small>
                   )}
               </label>
@@ -548,6 +601,7 @@ export function BirthAuditModal({
               <small className="birth-audit-hint">
                 Formatos permitidos: JPG, PNG o WebP (máx. 10 MB).
               </small>
+              {checkingFile && <small role="status">Validando fotografía…</small>}
               {fileError && (
                 <p className="error" role="alert">
                   {fileError}
@@ -613,10 +667,13 @@ export function BirthAuditModal({
             <button
               type="button"
               className="secondary-button"
-              disabled={isSubmitting}
-              onClick={onClose}
+              disabled={submitStage === 'saving'}
+              onClick={() => {
+                if (submitStage === 'uploading') uploadRef.current?.abort();
+                else closeForm();
+              }}
             >
-              Cancelar
+              {submitStage === 'uploading' ? 'Cancelar carga' : 'Cancelar'}
             </button>
             <button
               type="submit"

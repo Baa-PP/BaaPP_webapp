@@ -83,7 +83,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   webp: 'image/webp',
 };
 
-export function resolveEvidenceMimeType(file: File): string | null {
+function resolveEvidenceMimeType(file: File): string | null {
   const normalized = file.type.trim().toLowerCase();
   if (ALLOWED_EVIDENCE_MIME_TYPES.has(normalized)) {
     return normalized;
@@ -92,18 +92,11 @@ export function resolveEvidenceMimeType(file: File): string | null {
   return MIME_BY_EXTENSION[ext] ?? null;
 }
 
-export function validateEvidenceFile(file: File | null): {
+export async function validateEvidenceFile(file: File): Promise<{
   valid: boolean;
   mimeType: string | null;
   error: string | null;
-} {
-  if (!file) {
-    return {
-      valid: false,
-      mimeType: null,
-      error: 'Debes adjuntar una fotografía de evidencia antes de guardar.',
-    };
-  }
+}> {
   const mimeType = resolveEvidenceMimeType(file);
   if (!mimeType) {
     return {
@@ -126,19 +119,69 @@ export function validateEvidenceFile(file: File | null): {
       error: 'La fotografía excede el límite permitido de 10 MB.',
     };
   }
-  return { valid: true, mimeType, error: null };
+  try {
+    const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const matches = (signature: number[], offset = 0) =>
+      signature.every((byte, index) => header[offset + index] === byte);
+    const matchesFormat =
+      (mimeType === 'image/jpeg' && matches([0xff, 0xd8, 0xff])) ||
+      (mimeType === 'image/png' && matches([137, 80, 78, 71, 13, 10, 26, 10])) ||
+      (mimeType === 'image/webp' &&
+        matches([82, 73, 70, 70]) && matches([87, 69, 66, 80], 8));
+    if (matchesFormat) {
+      const bitmap = await createImageBitmap(file);
+      bitmap.close();
+      return { valid: true, mimeType, error: null };
+    }
+  } catch {
+    // A file with a valid name and header may still fail to decode.
+  }
+  return {
+    valid: false,
+    mimeType: null,
+    error: 'No se pudo abrir la fotografía como una imagen JPG, PNG o WebP válida.',
+  };
 }
 
 export async function uploadBirthEvidenceToS3(
   file: File,
   mimeType: string,
-  ranchId: string
+  ranchId: string,
+  controller: AbortController
+): Promise<string> {
+  const { signal } = controller;
+  const timeout = window.setTimeout(() => {
+    controller.abort(new Error('La carga de la fotografía tardó demasiado. Inténtalo de nuevo.'));
+  }, 60_000);
+
+  // apiFetch can wait for a shared session refresh even after its request is aborted.
+  let onAbort!: () => void;
+  const interrupted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+  try {
+    signal.throwIfAborted();
+    return await Promise.race([interrupted, requestEvidenceUpload(file, mimeType, ranchId, signal)]);
+  } finally {
+    window.clearTimeout(timeout);
+    signal.removeEventListener('abort', onAbort);
+  }
+}
+
+async function requestEvidenceUpload(
+  file: File,
+  mimeType: string,
+  ranchId: string,
+  signal: AbortSignal
 ): Promise<string> {
   const presigned = await apiFetch<PresignedUploadResponse>(
     '/media/presigned-upload',
     {
       method: 'POST',
       ranchId,
+      signal,
       body: JSON.stringify({
         contentType: mimeType,
         sizeBytes: file.size,
@@ -146,6 +189,8 @@ export async function uploadBirthEvidenceToS3(
       }),
     }
   );
+
+  signal.throwIfAborted();
 
   if (!presigned?.uploadUrl || !presigned?.s3Key) {
     throw new Error(
@@ -164,12 +209,14 @@ export async function uploadBirthEvidenceToS3(
     uploadRes = await fetch(presigned.uploadUrl, {
       method: 'PUT',
       redirect: 'error',
+      signal,
       headers: {
         'Content-Type': mimeType,
       },
       body: file,
     });
   } catch {
+    signal.throwIfAborted();
     throw new Error(
       'No se pudo cargar la fotografía de evidencia a S3. Revisa tu conexión e inténtalo de nuevo.'
     );
@@ -313,53 +360,45 @@ function extractAnimalListAndTotalPages(res: unknown): {
     const totalPagesRaw = Number(obj.totalPages ?? 1);
     return {
       list: Array.isArray(rawList) ? rawList : [],
-      totalPages: Number.isFinite(totalPagesRaw) && totalPagesRaw > 0 ? totalPagesRaw : 1,
+      totalPages: Number.isSafeInteger(totalPagesRaw) && totalPagesRaw > 0 ? totalPagesRaw : 1,
     };
   }
   return { list: [], totalPages: 1 };
 }
 
-export async function fetchRanchParentAnimals(
+export async function fetchRanchParentAnimalsPage(
   ranchId: string,
-  sex: 'FEMALE' | 'MALE'
-): Promise<RanchAnimalOption[]> {
-  const MAX_PAGES = 5;
-  const collected: RanchAnimalOption[] = [];
+  sex: 'FEMALE' | 'MALE',
+  page: number,
+  signal: AbortSignal
+): Promise<{ items: RanchAnimalOption[]; nextPage?: number }> {
+  const res = await apiFetch<unknown>(
+    `/animals?sexo=${sex}&estado=ACTIVE&page=${page}&size=100`,
+    { ranchId, signal }
+  );
+  const { list, totalPages } = extractAnimalListAndTotalPages(res);
+  const items: RanchAnimalOption[] = [];
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await apiFetch<unknown>(
-      `/animals?sexo=${sex}&estado=ACTIVE&page=${page}&size=100`,
-      { ranchId }
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    const id = asNonEmptyString(obj.id, obj.animalId, obj.animal_id);
+    const folioInterno = asNonEmptyString(
+      obj.folioInterno,
+      obj.folio_interno,
+      obj.folio
     );
-    const { list, totalPages } = extractAnimalListAndTotalPages(res);
-
-    for (const item of list) {
-      if (!item || typeof item !== 'object') continue;
-      const obj = item as Record<string, unknown>;
-      const id = asNonEmptyString(obj.id, obj.animalId, obj.animal_id);
-      const folioInterno = asNonEmptyString(
-        obj.folioInterno,
-        obj.folio_interno,
-        obj.folio
-      );
-      if (!id || !folioInterno) continue;
-      const normalizedSex = asNonEmptyString(obj.sex, obj.sexo) ?? sex;
-      if (normalizedSex.toUpperCase() !== sex) continue;
-      collected.push({
-        id,
-        folioInterno,
-        registroUno: asNonEmptyString(obj.registroUno, obj.registro_uno),
-        breed: asNonEmptyString(obj.breed, obj.raza),
-        sex: normalizedSex,
-      });
-    }
-
-    if (page + 1 >= totalPages || list.length < 100) {
-      break;
-    }
+    if (!id || !folioInterno) continue;
+    const normalizedSex = asNonEmptyString(obj.sex, obj.sexo) ?? sex;
+    if (normalizedSex.toUpperCase() !== sex) continue;
+    items.push({
+      id,
+      folioInterno,
+      registroUno: asNonEmptyString(obj.registroUno, obj.registro_uno),
+      breed: asNonEmptyString(obj.breed, obj.raza),
+      sex: normalizedSex,
+    });
   }
 
-  return collected.sort((a, b) =>
-    a.folioInterno.localeCompare(b.folioInterno, 'es-MX', { numeric: true })
-  );
+  return { items, nextPage: page + 1 < totalPages ? page + 1 : undefined };
 }
