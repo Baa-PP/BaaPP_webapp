@@ -13,6 +13,11 @@ const ReproductiveAnalyticsView = lazy(() =>
     default: mod.ReproductiveAnalyticsView,
   }))
 );
+const MortalityWeaningView = lazy(() =>
+  import('./features/analytics/MortalityWeaningView').then((mod) => ({
+    default: mod.MortalityWeaningView,
+  }))
+);
 const UnproductiveFemalesView = lazy(() =>
   import('./features/analytics/UnproductiveFemalesView').then((mod) => ({
     default: mod.UnproductiveFemalesView,
@@ -178,7 +183,7 @@ function PortalApp(){
       location.hash=defaultRoute(s);
       return;
     }
-    if((url==='indicadores'||url==='vientres-improductivos')&&!canAnalytics(s)){
+    if((url==='indicadores'||url==='mortalidad-destete'||url==='vientres-improductivos')&&!canAnalytics(s)){
       location.hash=defaultRoute(s);
       return;
     }
@@ -191,7 +196,7 @@ function PortalApp(){
       return;
     }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='indicadores'||url==='vientres-improductivos'||url==='rancho'||url==='cuentas-rama';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='indicadores'||url==='mortalidad-destete'||url==='vientres-improductivos'||url==='rancho'||url==='cuentas-rama';
     if(!isKnown){
       location.hash=defaultRoute(s);
       return;
@@ -207,7 +212,7 @@ function PortalApp(){
   const canViewAnalytics=Boolean(s&&canAnalytics(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','indicadores','vientres-improductivos','rancho','cuentas-rama'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','indicadores','mortalidad-destete','vientres-improductivos','rancho','cuentas-rama'].includes(url));
 
   // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
@@ -386,7 +391,7 @@ function PortalApp(){
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
   const ranchesError=ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):'';
   const retryRanches=()=>{void ranchesQuery.refetch()};
-  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='vientres-improductivos'&&canViewAnalytics?'Vientres improductivos (CULL / SELL)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='mortalidad-destete'&&canViewAnalytics?'Mortalidad y destete':url==='vientres-improductivos'&&canViewAnalytics?'Vientres improductivos (CULL / SELL)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -406,6 +411,9 @@ function PortalApp(){
             <>
               <a className={url==='indicadores'?'nav-link active':'nav-link'} href="#/indicadores">
                 Indicadores reproductivos
+              </a>
+              <a className={url==='mortalidad-destete'?'nav-link active':'nav-link'} href="#/mortalidad-destete">
+                Mortalidad y destete
               </a>
               <a className={url==='vientres-improductivos'?'nav-link active':'nav-link'} href="#/vientres-improductivos">
                 Vientres improductivos
@@ -518,6 +526,24 @@ function PortalApp(){
               }
             >
               <ReproductiveAnalyticsView
+                username={s.username}
+                multiRanch={multi}
+                activeRanchId={activeRanchId}
+                ranchName={selectedRanch?.name}
+                ranchesLoading={ranchesQuery.isFetching}
+                ranchesError={ranchesError}
+                onRetryRanches={retryRanches}
+              />
+            </Suspense>
+          ):url==='mortalidad-destete'&&canViewAnalytics?(
+            <Suspense
+              fallback={
+                <section className="empty-panel" role="status" aria-live="polite">
+                  <p className="muted">Cargando gráficas de mortalidad y destete…</p>
+                </section>
+              }
+            >
+              <MortalityWeaningView
                 username={s.username}
                 multiRanch={multi}
                 activeRanchId={activeRanchId}

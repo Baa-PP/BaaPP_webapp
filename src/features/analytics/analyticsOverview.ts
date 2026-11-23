@@ -1,3 +1,5 @@
+export const MORTALITY_ALERT_THRESHOLD_PCT = 3;
+
 export interface SeasonReproductionMetric {
   seasonKey: string;
   seasonLabel: string;
@@ -10,6 +12,57 @@ export interface SeasonReproductionMetric {
   birthsPerExposedPct: number | null;
   offspringBorn: number | null;
   prolificity: number | null;
+  offspringDead: number | null;
+  birthDead: number | null;
+  preWeaningDead: number | null;
+  offspringAliveAtBirth: number | null;
+  mortalityPct: number | null;
+  birthMortalityPct: number | null;
+  preWeaningMortalityPct: number | null;
+  mortalityAlert: boolean;
+  achievedBirthsPct: number | null;
+  weanedAliveCount: number | null;
+  weaningSurvivalPct: number | null;
+  averageWeaningWeightKg: number | null;
+}
+
+export interface StageWeightAverage {
+  stageKey: 'BIRTH' | 'WEANING' | 'DAY_120' | 'DAY_150' | 'EVALUATION';
+  stageLabel: string;
+  averageWeightKg: number;
+  sampleCount: number;
+}
+
+export interface WeaningWeightSummary {
+  averageWeaningWeightKg: number | null;
+  sampleCount: number | null;
+  femalesAvgKg: number | null;
+  femalesCount: number;
+  malesAvgKg: number | null;
+  malesCount: number;
+  stageAverages: StageWeightAverage[];
+}
+
+export interface MortalityWeaningSummary {
+  overallAchievedBirthsPct: number | null;
+  achievedBirthsRatio: RatioAggregate | null;
+  achievedBirthsSource:
+    | 'explicit'
+    | 'live_offspring'
+    | 'births_per_pregnant'
+    | 'births_per_exposed'
+    | null;
+  overallMortalityPct: number | null;
+  mortalityRatio: RatioAggregate | null;
+  overallBirthMortalityPct: number | null;
+  overallPreWeaningMortalityPct: number | null;
+  mortalityAlert: boolean;
+  alertSeasons: SeasonReproductionMetric[];
+  overallWeaningSurvivalPct: number | null;
+  weaningSurvivalRatio: RatioAggregate | null;
+  weaningSurvivalIsDerived: boolean;
+  weaningWeight: WeaningWeightSummary;
+  hasData: boolean;
 }
 
 export interface RatioAggregate {
@@ -67,6 +120,7 @@ export interface ReproductiveOverview {
   birthsPerExposedRatio: RatioAggregate | null;
   overallProlificity: number | null;
   prolificityRatio: RatioAggregate | null;
+  mortalityWeaning: MortalityWeaningSummary;
   unproductive: UnproductiveFemalesSummary;
 }
 
@@ -243,6 +297,165 @@ export function normalizeSeasonIndicator(
         ? roundTo(offspringBorn / births, 2)
         : null;
 
+  const offspringDead = toOptionalNonNegativeCount(
+    obj.offspringDead,
+    obj.offspring_dead,
+    obj.crias_muertas,
+    obj.criasMuertas,
+    obj.lambsDead,
+    obj.lambs_dead,
+    obj.deceasedOffspring
+  );
+  const birthDead = toOptionalNonNegativeCount(
+    obj.birthDead,
+    obj.birth_dead,
+    obj.stillborn,
+    obj.stillbirths,
+    obj.nacidos_muertos,
+    obj.nacidosMuertos,
+    obj.crias_muertas_nacimiento
+  );
+  const preWeaningDead = toOptionalNonNegativeCount(
+    obj.preWeaningDead,
+    obj.pre_weaning_dead,
+    obj.muertas_predestete,
+    obj.muertasPredestete,
+    obj.crias_muertas_despues,
+    obj.muertas_despues
+  );
+  const explicitAliveAtBirth = toOptionalNonNegativeCount(
+    obj.offspringBornAlive,
+    obj.offspring_born_alive,
+    obj.liveBirths,
+    obj.live_births,
+    obj.nacidos_vivos,
+    obj.nacidosVivos
+  );
+  const offspringAliveAtBirth =
+    explicitAliveAtBirth !== null
+      ? explicitAliveAtBirth
+      : offspringBorn !== null && birthDead !== null
+        ? Math.max(0, offspringBorn - birthDead)
+        : null;
+
+  const explicitMortalityPct = toOptionalFiniteNumber(
+    obj.mortalityPct,
+    obj.pct_mortalidad,
+    obj.mortality_pct,
+    obj.pctMortalidad
+  );
+  const mortalityPct =
+    explicitMortalityPct !== null
+      ? roundTo(explicitMortalityPct, 1)
+      : offspringDead !== null && offspringBorn !== null && offspringBorn > 0
+        ? roundTo((offspringDead / offspringBorn) * 100, 1)
+        : null;
+
+  const explicitBirthMortalityPct = toOptionalFiniteNumber(
+    obj.birthMortalityPct,
+    obj.birth_mortality_pct,
+    obj.stillbirthPct,
+    obj.pct_mortalidad_nacimiento,
+    obj.pctMortalidadNacimiento
+  );
+  const birthMortalityPct =
+    explicitBirthMortalityPct !== null
+      ? roundTo(explicitBirthMortalityPct, 1)
+      : birthDead !== null && offspringBorn !== null && offspringBorn > 0
+        ? roundTo((birthDead / offspringBorn) * 100, 1)
+        : null;
+
+  const explicitPreWeaningMortalityPct = toOptionalFiniteNumber(
+    obj.preWeaningMortalityPct,
+    obj.pre_weaning_mortality_pct,
+    obj.predesteteMortalityPct,
+    obj.pct_mortalidad_predestete,
+    obj.pctMortalidadPredestete
+  );
+  const preWeaningMortalityPct =
+    explicitPreWeaningMortalityPct !== null
+      ? roundTo(explicitPreWeaningMortalityPct, 1)
+      : preWeaningDead !== null && offspringBorn !== null && offspringBorn > 0
+        ? roundTo((preWeaningDead / offspringBorn) * 100, 1)
+        : null;
+
+  const explicitMortalityAlert = toOptionalBoolean(
+    obj.mortalityAlert,
+    obj.mortality_alert,
+    obj.alerta_mortalidad,
+    obj.alertaMortalidad
+  );
+  const mortalityAlert =
+    (mortalityPct !== null && mortalityPct > MORTALITY_ALERT_THRESHOLD_PCT) ||
+    explicitMortalityAlert === true;
+
+  const explicitAchievedBirthsPct = toOptionalFiniteNumber(
+    obj.achievedBirthsPct,
+    obj.achieved_births_pct,
+    obj.successfulBirthsPct,
+    obj.birthSuccessPct,
+    obj.pct_nacimientos_logrados,
+    obj.pctNacimientosLogrados,
+    obj.liveBirthPct,
+    obj.pct_nacidos_vivos
+  );
+  const achievedBirthsPct =
+    explicitAchievedBirthsPct !== null
+      ? roundTo(explicitAchievedBirthsPct, 1)
+      : offspringAliveAtBirth !== null &&
+          offspringBorn !== null &&
+          offspringBorn > 0
+        ? roundTo((offspringAliveAtBirth / offspringBorn) * 100, 1)
+        : (birthsPerPregnantPct ?? birthsPerExposedPct);
+
+  const weanedAliveCount = toOptionalNonNegativeCount(
+    obj.weanedAlive,
+    obj.weaned_alive,
+    obj.weanedCount,
+    obj.weaned_count,
+    obj.crias_destetadas,
+    obj.criasDestetadas,
+    obj.destetadas
+  );
+  const explicitWeaningSurvivalPct = toOptionalFiniteNumber(
+    obj.weaningSurvivalPct,
+    obj.weaning_survival_pct,
+    obj.aliveAtWeaningPct,
+    obj.alive_at_weaning_pct,
+    obj.lambSurvivalPct,
+    obj.pct_crias_vivas_destete,
+    obj.pctCriasVivasDestete,
+    obj.pct_vivas_destete
+  );
+  const weaningSurvivalPct =
+    explicitWeaningSurvivalPct !== null
+      ? roundTo(explicitWeaningSurvivalPct, 1)
+      : weanedAliveCount !== null && offspringBorn !== null && offspringBorn > 0
+        ? roundTo((weanedAliveCount / offspringBorn) * 100, 1)
+        : mortalityPct !== null
+          ? roundTo(Math.max(0, 100 - mortalityPct), 1)
+          : offspringBorn !== null &&
+              offspringBorn > 0 &&
+              offspringDead !== null
+            ? roundTo(
+                Math.max(0, ((offspringBorn - offspringDead) / offspringBorn) * 100),
+                1
+              )
+            : null;
+
+  const explicitAvgWeaningWeightKg = toOptionalFiniteNumber(
+    obj.averageWeaningWeightKg,
+    obj.average_weaning_weight_kg,
+    obj.avgWeaningWeightKg,
+    obj.avg_weaning_weight_kg,
+    obj.weaningAvgWeightKg,
+    obj.weaningWeightKg,
+    obj.peso_promedio_destete,
+    obj.pesoPromedioDestete,
+    obj.pesoPromedioDesteteKg,
+    obj.peso_destete_promedio
+  );
+
   return {
     seasonKey: rawSeason,
     seasonLabel: formatSeasonLabel(rawSeason, index),
@@ -255,6 +468,21 @@ export function normalizeSeasonIndicator(
     birthsPerExposedPct,
     offspringBorn,
     prolificity,
+    offspringDead,
+    birthDead,
+    preWeaningDead,
+    offspringAliveAtBirth,
+    mortalityPct,
+    birthMortalityPct,
+    preWeaningMortalityPct,
+    mortalityAlert,
+    achievedBirthsPct,
+    weanedAliveCount,
+    weaningSurvivalPct,
+    averageWeaningWeightKg:
+      explicitAvgWeaningWeightKg !== null
+        ? roundTo(explicitAvgWeaningWeightKg, 2)
+        : null,
   };
 }
 
@@ -685,10 +913,453 @@ export function normalizeUnproductiveFemalesOverview(
   };
 }
 
+const STAGE_METADATA: ReadonlyArray<{
+  key: StageWeightAverage['stageKey'];
+  label: string;
+}> = [
+  { key: 'BIRTH', label: 'Nacimiento' },
+  { key: 'WEANING', label: 'Destete' },
+  { key: 'DAY_120', label: '120 días' },
+  { key: 'DAY_150', label: '150 días' },
+  { key: 'EVALUATION', label: 'Evaluación' },
+];
+
+function normalizeStageKey(
+  ...values: unknown[]
+): StageWeightAverage['stageKey'] | null {
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const norm = v
+      .trim()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '_');
+    if (norm === 'BIRTH' || norm === 'NACIMIENTO') return 'BIRTH';
+    if (norm === 'WEANING' || norm === 'DESTETE') return 'WEANING';
+    if (norm === 'DAY_120' || norm === 'DAY120' || norm === '120_DIAS' || norm === '120D') {
+      return 'DAY_120';
+    }
+    if (norm === 'DAY_150' || norm === 'DAY150' || norm === '150_DIAS' || norm === '150D') {
+      return 'DAY_150';
+    }
+    if (norm === 'EVALUATION' || norm === 'EVALUACION') return 'EVALUATION';
+  }
+  return null;
+}
+
+function normalizeStageSex(value: unknown): 'FEMALE' | 'MALE' | null {
+  if (typeof value !== 'string') return null;
+  const upper = value.trim().toUpperCase();
+  if (upper === 'FEMALE' || upper === 'HEMBRA' || upper === 'F') return 'FEMALE';
+  if (upper === 'MALE' || upper === 'MACHO' || upper === 'M') return 'MALE';
+  return null;
+}
+
+function summarizeStageWeights(
+  rootObj: Record<string, unknown> | null,
+  seasons: SeasonReproductionMetric[]
+): WeaningWeightSummary {
+  const rawPoints = rootObj
+    ? (rootObj.weightByStage ??
+        rootObj.weight_by_stage ??
+        rootObj.stageWeights ??
+        rootObj.pesoPorEtapa ??
+        rootObj.peso_por_etapa)
+    : undefined;
+
+  const stageBuckets = new Map<
+    StageWeightAverage['stageKey'],
+    { weightedSum: number; totalCount: number }
+  >();
+  let femalesSum = 0;
+  let femalesCount = 0;
+  let malesSum = 0;
+  let malesCount = 0;
+
+  if (Array.isArray(rawPoints)) {
+    for (const point of rawPoints) {
+      if (!point || typeof point !== 'object' || Array.isArray(point)) continue;
+      const obj = point as Record<string, unknown>;
+      const stageKey = normalizeStageKey(
+        obj.stage,
+        obj.milestone,
+        obj.hito,
+        obj.etapa
+      );
+      if (!stageKey) continue;
+
+      const weightKg = toOptionalFiniteNumber(
+        obj.weightKg,
+        obj.weight_kg,
+        obj.pesoKg,
+        obj.peso_kg,
+        obj.averageWeightKg,
+        obj.average_weight_kg,
+        obj.avgWeightKg,
+        obj.avg_weight_kg,
+        obj.pesoPromedioKg,
+        obj.peso_promedio_kg,
+        obj.ranchAverageKg,
+        obj.ranch_average_kg,
+        obj.promedioRanchoKg,
+        obj.promedio_rancho_kg
+      );
+      if (weightKg === null || weightKg <= 0) continue;
+
+      const count =
+        toOptionalNonNegativeCount(
+          obj.sampleCount,
+          obj.sample_count,
+          obj.count,
+          obj.animales,
+          obj.total,
+          obj.cantidad
+        ) ?? 1;
+      if (count <= 0) continue;
+
+      const bucket = stageBuckets.get(stageKey) ?? {
+        weightedSum: 0,
+        totalCount: 0,
+      };
+      bucket.weightedSum += weightKg * count;
+      bucket.totalCount += count;
+      stageBuckets.set(stageKey, bucket);
+
+      if (stageKey === 'WEANING') {
+        const sex = normalizeStageSex(obj.sex ?? obj.sexo);
+        if (sex === 'FEMALE') {
+          femalesSum += weightKg * count;
+          femalesCount += count;
+        } else if (sex === 'MALE') {
+          malesSum += weightKg * count;
+          malesCount += count;
+        }
+      }
+    }
+  }
+
+  const stageAverages: StageWeightAverage[] = [];
+  for (const meta of STAGE_METADATA) {
+    const bucket = stageBuckets.get(meta.key);
+    if (!bucket || bucket.totalCount <= 0) continue;
+    stageAverages.push({
+      stageKey: meta.key,
+      stageLabel: meta.label,
+      averageWeightKg: roundTo(bucket.weightedSum / bucket.totalCount, 2),
+      sampleCount: bucket.totalCount,
+    });
+  }
+
+  const nestedWeaning =
+    rootObj &&
+    typeof rootObj.weaningSummary === 'object' &&
+    rootObj.weaningSummary !== null &&
+    !Array.isArray(rootObj.weaningSummary)
+      ? (rootObj.weaningSummary as Record<string, unknown>)
+      : rootObj &&
+          typeof rootObj.mortalityWeaning === 'object' &&
+          rootObj.mortalityWeaning !== null &&
+          !Array.isArray(rootObj.mortalityWeaning)
+        ? (rootObj.mortalityWeaning as Record<string, unknown>)
+        : null;
+
+  const explicitRootWeaningWeight = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.averageWeaningWeightKg,
+        rootObj.average_weaning_weight_kg,
+        rootObj.avgWeaningWeightKg,
+        rootObj.avg_weaning_weight_kg,
+        rootObj.weaningAvgWeightKg,
+        rootObj.weaningWeightKg,
+        rootObj.pesoPromedioDestete,
+        rootObj.peso_promedio_destete,
+        rootObj.pesoPromedioDesteteKg,
+        rootObj.peso_destete_promedio,
+        nestedWeaning?.averageWeaningWeightKg,
+        nestedWeaning?.averageWeightKg,
+        nestedWeaning?.pesoPromedioDestete
+      )
+    : null;
+
+  const weaningStage = stageAverages.find((s) => s.stageKey === 'WEANING');
+  const seasonAvgWeight = averageNonNull(
+    seasons.map((s) => s.averageWeaningWeightKg),
+    2
+  );
+
+  const averageWeaningWeightKg =
+    explicitRootWeaningWeight !== null
+      ? roundTo(explicitRootWeaningWeight, 2)
+      : weaningStage
+        ? weaningStage.averageWeightKg
+        : seasonAvgWeight;
+
+  const explicitSampleCount = rootObj
+    ? toOptionalNonNegativeCount(
+        rootObj.weaningSampleCount,
+        rootObj.weaning_sample_count,
+        nestedWeaning?.sampleCount,
+        nestedWeaning?.weaningSampleCount
+      )
+    : null;
+
+  return {
+    averageWeaningWeightKg,
+    sampleCount: explicitSampleCount ?? weaningStage?.sampleCount ?? null,
+    femalesAvgKg: femalesCount > 0 ? roundTo(femalesSum / femalesCount, 2) : null,
+    femalesCount,
+    malesAvgKg: malesCount > 0 ? roundTo(malesSum / malesCount, 2) : null,
+    malesCount,
+    stageAverages,
+  };
+}
+
+export function buildMortalityWeaningSummary(
+  rootObj: Record<string, unknown> | null,
+  seasons: SeasonReproductionMetric[],
+  birthsPerPregnantAgg: { value: number | null; ratio: RatioAggregate | null },
+  birthsPerExposedAgg: { value: number | null; ratio: RatioAggregate | null }
+): MortalityWeaningSummary {
+  const nestedSummary =
+    rootObj &&
+    typeof rootObj.mortalityWeaning === 'object' &&
+    rootObj.mortalityWeaning !== null &&
+    !Array.isArray(rootObj.mortalityWeaning)
+      ? (rootObj.mortalityWeaning as Record<string, unknown>)
+      : null;
+
+  const explicitAchievedBirths = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.achievedBirthsPct,
+        rootObj.achieved_births_pct,
+        rootObj.pctNacimientosLogrados,
+        rootObj.pct_nacimientos_logrados,
+        nestedSummary?.achievedBirthsPct,
+        nestedSummary?.overallAchievedBirthsPct
+      )
+    : null;
+
+  const liveOffspringAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.offspringAliveAtBirth,
+    (s) => s.offspringBorn,
+    () => null,
+    'crías nac.',
+    100,
+    1
+  );
+
+  let overallAchievedBirthsPct: number | null = null;
+  let achievedBirthsRatio: RatioAggregate | null = null;
+  let achievedBirthsSource: MortalityWeaningSummary['achievedBirthsSource'] =
+    null;
+
+  if (explicitAchievedBirths !== null) {
+    overallAchievedBirthsPct = roundTo(explicitAchievedBirths, 1);
+    achievedBirthsSource = 'explicit';
+  } else if (liveOffspringAgg.ratio) {
+    overallAchievedBirthsPct = liveOffspringAgg.value;
+    achievedBirthsRatio = liveOffspringAgg.ratio;
+    achievedBirthsSource = 'live_offspring';
+  } else if (birthsPerPregnantAgg.value !== null) {
+    overallAchievedBirthsPct = birthsPerPregnantAgg.value;
+    achievedBirthsRatio = birthsPerPregnantAgg.ratio;
+    achievedBirthsSource = 'births_per_pregnant';
+  } else if (birthsPerExposedAgg.value !== null) {
+    overallAchievedBirthsPct = birthsPerExposedAgg.value;
+    achievedBirthsRatio = birthsPerExposedAgg.ratio;
+    achievedBirthsSource = 'births_per_exposed';
+  } else {
+    const fallbackAchieved = averageNonNull(
+      seasons.map((s) => s.achievedBirthsPct),
+      1
+    );
+    if (fallbackAchieved !== null) {
+      overallAchievedBirthsPct = fallbackAchieved;
+      achievedBirthsSource = 'explicit';
+    }
+  }
+
+  const explicitOverallMortality = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.overallMortalityPct,
+        rootObj.overall_mortality_pct,
+        rootObj.mortalityPct,
+        rootObj.pct_mortalidad,
+        nestedSummary?.overallMortalityPct,
+        nestedSummary?.mortalityPct
+      )
+    : null;
+
+  const mortalityAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.offspringDead,
+    (s) => s.offspringBorn,
+    (s) => s.mortalityPct,
+    'crías',
+    100,
+    1
+  );
+
+  const overallMortalityPct =
+    explicitOverallMortality !== null
+      ? roundTo(explicitOverallMortality, 1)
+      : mortalityAgg.value;
+
+  const birthMortalityAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.birthDead,
+    (s) => s.offspringBorn,
+    (s) => s.birthMortalityPct,
+    'crías',
+    100,
+    1
+  );
+  const explicitBirthMortality = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.birthMortalityPct,
+        rootObj.birth_mortality_pct,
+        rootObj.pct_mortalidad_nacimiento,
+        nestedSummary?.birthMortalityPct
+      )
+    : null;
+  const overallBirthMortalityPct =
+    explicitBirthMortality !== null
+      ? roundTo(explicitBirthMortality, 1)
+      : birthMortalityAgg.value;
+
+  const preWeaningMortalityAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.preWeaningDead,
+    (s) => s.offspringBorn,
+    (s) => s.preWeaningMortalityPct,
+    'crías',
+    100,
+    1
+  );
+  const explicitPreWeaningMortality = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.preWeaningMortalityPct,
+        rootObj.pre_weaning_mortality_pct,
+        rootObj.pct_mortalidad_predestete,
+        nestedSummary?.preWeaningMortalityPct
+      )
+    : null;
+  const overallPreWeaningMortalityPct =
+    explicitPreWeaningMortality !== null
+      ? roundTo(explicitPreWeaningMortality, 1)
+      : preWeaningMortalityAgg.value;
+
+  const alertSeasons = seasons.filter((s) => s.mortalityAlert);
+  const explicitMortalityAlert = rootObj
+    ? toOptionalBoolean(
+        rootObj.mortalityAlert,
+        rootObj.mortality_alert,
+        nestedSummary?.mortalityAlert
+      )
+    : null;
+  const mortalityAlert =
+    alertSeasons.length > 0 ||
+    (overallMortalityPct !== null &&
+      overallMortalityPct > MORTALITY_ALERT_THRESHOLD_PCT) ||
+    explicitMortalityAlert === true;
+
+  const explicitWeaningSurvival = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.weaningSurvivalPct,
+        rootObj.weaning_survival_pct,
+        rootObj.aliveAtWeaningPct,
+        rootObj.pct_crias_vivas_destete,
+        nestedSummary?.weaningSurvivalPct,
+        nestedSummary?.aliveAtWeaningPct
+      )
+    : null;
+
+  const weanedAliveAgg = aggregateMatchedRatio(
+    seasons,
+    (s) => s.weanedAliveCount,
+    (s) => s.offspringBorn,
+    () => null,
+    'crías nac.',
+    100,
+    1
+  );
+
+  let overallWeaningSurvivalPct: number | null = null;
+  let weaningSurvivalRatio: RatioAggregate | null = null;
+  let weaningSurvivalIsDerived = false;
+
+  if (explicitWeaningSurvival !== null) {
+    overallWeaningSurvivalPct = roundTo(explicitWeaningSurvival, 1);
+  } else if (weanedAliveAgg.ratio) {
+    overallWeaningSurvivalPct = weanedAliveAgg.value;
+    weaningSurvivalRatio = weanedAliveAgg.ratio;
+  } else if (overallMortalityPct !== null) {
+    overallWeaningSurvivalPct = roundTo(Math.max(0, 100 - overallMortalityPct), 1);
+    weaningSurvivalIsDerived = true;
+    if (mortalityAgg.ratio) {
+      weaningSurvivalRatio = {
+        numerator: Math.max(
+          0,
+          mortalityAgg.ratio.denominator - mortalityAgg.ratio.numerator
+        ),
+        denominator: mortalityAgg.ratio.denominator,
+        denominatorLabel: mortalityAgg.ratio.denominatorLabel,
+      };
+    }
+  } else {
+    const avgSeasonSurvival = averageNonNull(
+      seasons.map((s) => s.weaningSurvivalPct),
+      1
+    );
+    if (avgSeasonSurvival !== null) {
+      overallWeaningSurvivalPct = avgSeasonSurvival;
+    }
+  }
+
+  const weaningWeight = summarizeStageWeights(rootObj, seasons);
+
+  const hasData =
+    overallAchievedBirthsPct !== null ||
+    overallMortalityPct !== null ||
+    overallWeaningSurvivalPct !== null ||
+    weaningWeight.averageWeaningWeightKg !== null ||
+    weaningWeight.stageAverages.length > 0 ||
+    seasons.some(
+      (s) =>
+        s.mortalityPct !== null ||
+        s.achievedBirthsPct !== null ||
+        s.weaningSurvivalPct !== null ||
+        s.averageWeaningWeightKg !== null
+    );
+
+  return {
+    overallAchievedBirthsPct,
+    achievedBirthsRatio,
+    achievedBirthsSource,
+    overallMortalityPct,
+    mortalityRatio: mortalityAgg.ratio,
+    overallBirthMortalityPct,
+    overallPreWeaningMortalityPct,
+    mortalityAlert,
+    alertSeasons,
+    overallWeaningSurvivalPct,
+    weaningSurvivalRatio,
+    weaningSurvivalIsDerived,
+    weaningWeight,
+    hasData,
+  };
+}
+
 export function normalizeReproductiveOverview(
   payload: unknown
 ): ReproductiveOverview {
   const root = unwrapAnalyticsRoot(payload);
+  const rootObj =
+    root && typeof root === 'object' && !Array.isArray(root)
+      ? (root as Record<string, unknown>)
+      : null;
 
   let rawSeasons: unknown[] = [];
   if (Array.isArray(root)) {
@@ -782,6 +1453,13 @@ export function normalizeReproductiveOverview(
     2
   );
 
+  const mortalityWeaning = buildMortalityWeaningSummary(
+    rootObj,
+    seasons,
+    birthsPerPregnantAgg,
+    birthsPerExposedAgg
+  );
+
   return {
     seasons,
     overallPregnancyPct: pregnancyAgg.value,
@@ -792,6 +1470,7 @@ export function normalizeReproductiveOverview(
     birthsPerExposedRatio: birthsPerExposedAgg.ratio,
     overallProlificity: prolificityAgg.value,
     prolificityRatio: prolificityAgg.ratio,
+    mortalityWeaning,
     unproductive: normalizeUnproductiveFemalesOverview(payload),
   };
 }

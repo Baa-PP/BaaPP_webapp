@@ -1981,6 +1981,127 @@ td small,
   color: var(--text-primary);
 }
 
+/* --- WEB-022: Gráficas de mortalidad y destete con alerta visual --- */
+.analytics-mortality-alert-panel p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-mortality-alert-panel a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-status-banner-ok {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #F0FDF4;
+  border: 1px solid #86EFAC;
+  border-left: 4px solid var(--semantic-success);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.analytics-status-banner-ok strong {
+  display: block;
+  font-size: 14px;
+  color: var(--semantic-success);
+}
+
+.analytics-status-banner-ok p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-alert-icon-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.analytics-alert-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+  background: #FEE2E2;
+  color: var(--semantic-danger);
+}
+
+.analytics-ok-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+  background: #DCFCE7;
+  color: var(--semantic-success);
+}
+
+.analytics-kpi-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analytics-threshold-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.analytics-threshold-pill.threshold-alert {
+  background: var(--semantic-danger-bg);
+  color: var(--semantic-danger);
+  border: 1px solid #FECACA;
+}
+
+.analytics-threshold-pill.threshold-ok {
+  background: #F0FDF4;
+  color: var(--semantic-success);
+  border: 1px solid #86EFAC;
+}
+
+.analytics-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 20px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-support);
+  text-align: center;
+}
+
+.analytics-cell-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 @media (max-width: 1000px) {
   .analytics-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
