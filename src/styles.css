@@ -947,6 +947,17 @@ td small,
   --deep: #1E40AF;
 }
 
+.neutral {
+  --tone: #334155;
+  --tint: #F1F5F9;
+  --line: #CBD5E1;
+  --deep: #0F172A;
+}
+
+.detail-error-panel {
+  max-width: 720px;
+}
+
 .cert-head {
   display: flex;
   justify-content: space-between;
@@ -1015,9 +1026,16 @@ td small,
   padding: 22px 24px;
 }
 
+.photo-frame {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .photo {
   position: relative;
-  min-height: 200px;
+  min-height: 220px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -1035,14 +1053,37 @@ td small,
   object-fit: cover;
 }
 
-.photo > span {
+.photo-placeholder {
   display: grid;
   justify-items: center;
-  font-size: 26px;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+}
+
+.photo-placeholder > span {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.photo-placeholder-error {
+  color: var(--semantic-danger);
+}
+
+.photo-retry-btn {
+  margin-top: 2px;
 }
 
 .photo small {
   font-size: 11px;
+  line-height: 1.4;
+}
+
+.photo-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .section-label {
@@ -1056,38 +1097,116 @@ td small,
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px 12px;
-  margin-top: 12px;
+  margin: 12px 0 0;
 }
 
 .id-grid small,
+.id-grid dt,
 .owners small {
   display: block;
-  margin-bottom: 3px;
+  margin: 0 0 3px;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
 }
 
 .id-grid b,
+.id-grid dd,
 .owners b {
+  margin: 0;
   font-size: 13px;
+  font-weight: 700;
   color: var(--text-primary);
   overflow-wrap: anywhere;
+}
+
+.ownership-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ownership-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.origin-diff-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-control);
+  background: #FEF3C7;
+  border: 1px solid #F59E0B;
+  color: #92400E;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .owners {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-top: 16px;
-  padding: 12px 14px;
-  border-radius: var(--radius-control);
-  background: var(--tint);
-  border: 1px solid var(--line);
 }
 
-.owners small {
+.owner-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+}
+
+.owner-box-breeder {
+  background: var(--surface-support);
+  border-color: var(--border-strong);
+}
+
+.owner-box-current {
+  background: var(--tint);
+  border-color: var(--line);
+}
+
+.owner-box-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.owner-box small {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.owner-box-current small {
   color: var(--deep);
+}
+
+.owner-role-tag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.owner-role-tag.current {
+  border-color: var(--tone);
+  color: var(--deep);
+}
+
+.owner-box-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .genealogy-block {
