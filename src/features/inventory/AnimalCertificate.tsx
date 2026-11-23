@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, getSessionGeneration } from '../../api/client';
+import { AnimalWeightsSection } from './AnimalWeightsSection';
 
 export interface AnimalWeight {
   id?: string;
@@ -77,8 +78,6 @@ const LABELS: Record<string, string> = {
   TRANSFER: 'Traslado',
   OTHER: 'Otro',
 };
-
-const MILESTONES = ['BIRTH', 'WEANING', 'DAY_120', 'DAY_150', 'EVALUATION'] as const;
 
 function labelOf(value?: string | null): string {
   if (!value) return '—';
@@ -233,10 +232,16 @@ export function normalizeAnimalDetail(raw: unknown): AnimalDetail {
       asNonEmptyString(a.conceptionMethod ?? a.conception_method ?? a.metodo_concepcion) ??
       undefined,
     mortalityDate: asNonEmptyString(
-      a.mortalityDate ?? a.mortality_date ?? a.fecha_muerte ?? a.sale_date
+      a.mortalityDate ?? a.mortality_date ?? a.fecha_muerte ?? a.saleDate ?? a.sale_date
     ),
     mortalityCause: asNonEmptyString(
-      a.mortalityCause ?? a.mortality_cause ?? a.causa_muerte ?? a.sale_cause ?? a.sale_reason
+      a.mortalityCause ??
+        a.mortality_cause ??
+        a.causa_muerte ??
+        a.saleCause ??
+        a.sale_cause ??
+        a.saleReason ??
+        a.sale_reason
     ),
     lifeStageAtDeath: asNonEmptyString(
       a.lifeStageAtDeath ?? a.life_stage_at_death ?? a.etapa_al_morir
@@ -413,27 +418,6 @@ export function AnimalCertificate({
       animal.criador.trim().toLowerCase() !== effectiveOwner.toLowerCase()
   );
 
-  const weights = animal.weights;
-  const gRaw = weights
-    .map((m) => ({
-      w: m.weightKg,
-      t: m.date ? new Date(m.date + (m.date.length === 10 ? 'T00:00:00' : '')).getTime() : NaN,
-    }))
-    .filter((x) => Number.isFinite(x.w) && Number.isFinite(x.t))
-    .sort((x, y) => x.t - y.t);
-
-  const gdpValues = gRaw.slice(1).reduce<number[]>((acc, m, i) => {
-    const days = (m.t - gRaw[i].t) / 86400000;
-    if (Number.isFinite(days) && days > 0) {
-      acc.push((m.w - gRaw[i].w) / days);
-    }
-    return acc;
-  }, []);
-
-  const scrotalMeasure = weights.find(
-    (m) => m.scrotalCircumferenceCm !== null && m.scrotalCircumferenceCm !== undefined
-  );
-
   const hasGenealogy = Boolean(
     animal.sireLabel ||
       animal.sireUno ||
@@ -443,13 +427,9 @@ export function AnimalCertificate({
       animal.parturitionType
   );
 
-  const getX = (i: number) =>
-    gdpValues.length === 1 ? 300 : (i * 600) / Math.max(1, gdpValues.length - 1);
-  const getY = (v: number) => {
-    const min = Math.min(...gdpValues, 0);
-    const max = Math.max(...gdpValues, 0.01);
-    return 120 - ((v - min) / (max - min || 1)) * 100;
-  };
+  const isDeceased = animal.status === 'DECEASED';
+  const isSold = animal.status === 'SOLD';
+  const isExited = isDeceased || isSold;
 
   return (
     <article
@@ -479,20 +459,41 @@ export function AnimalCertificate({
         </div>
       </header>
 
-      {(animal.status === 'DECEASED' || animal.status === 'SOLD') && (
-        <div className="life-alert" role="status">
-          <b>
-            {labelOf(animal.status)} · Fecha {formatDate(animal.mortalityDate)}
-          </b>
-          <span>
-            Causa: {animal.mortalityCause || 'No especificada'} · Etapa:{' '}
-            {labelOf(
-              animal.status === 'DECEASED'
-                ? animal.lifeStageAtDeath || animal.lifeStage
-                : animal.lifeStage
-            )}
-          </span>
-        </div>
+      {isExited && (
+        <section
+          className={`life-alert ${isSold ? 'sold' : 'deceased'}`}
+          role="status"
+          aria-label={`Registro de baja: ${labelOf(animal.status)}`}
+        >
+          <div className="life-alert-head">
+            <span className="baja-badge">
+              {isDeceased ? 'BAJA · FALLECIDO (DECEASED)' : 'BAJA · VENDIDO (SOLD)'}
+            </span>
+            <span className="baja-note">
+              Registro histórico preservado · sin borrado físico
+            </span>
+          </div>
+          <dl className="baja-grid">
+            <div>
+              <dt>{isDeceased ? 'Fecha de fallecimiento' : 'Fecha de venta / baja'}</dt>
+              <dd>{animal.mortalityDate ? formatDate(animal.mortalityDate) : 'No registrada'}</dd>
+            </div>
+            <div>
+              <dt>{isDeceased ? 'Causa de muerte' : 'Causa / motivo de baja'}</dt>
+              <dd>{animal.mortalityCause || 'No especificada'}</dd>
+            </div>
+            <div>
+              <dt>{isDeceased ? 'Etapa al morir' : 'Etapa al causar baja'}</dt>
+              <dd>
+                {labelOf(
+                  isDeceased
+                    ? animal.lifeStageAtDeath || animal.lifeStage
+                    : animal.lifeStage
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
       )}
 
       <div className="cert-body">
@@ -613,86 +614,7 @@ export function AnimalCertificate({
         {animal.entryReason && <span>↳ Alta: {labelOf(animal.entryReason)}</span>}
       </div>
 
-      <section className="cert-section">
-        <div className="section-title">
-          <div>
-            <h2>Historial de pesajes</h2>
-            <small>Control de crecimiento por etapa</small>
-          </div>
-          <small>PESO · KG</small>
-        </div>
-        <div className="weights">
-          {MILESTONES.map((k) => {
-            const m = weights.find((x) => x.milestone === k);
-            return (
-              <div key={k}>
-                <small>{labelOf(k)}</small>
-                <b>{m ? `${m.weightKg.toFixed(1)} kg` : '—'}</b>
-                <small>{m ? formatDate(m.date) : 'Sin registro'}</small>
-              </div>
-            );
-          })}
-        </div>
-        {isMale && (
-          <p className="scrotal">
-            ♂ Circunferencia escrotal:{' '}
-            <b>
-              {scrotalMeasure?.scrotalCircumferenceCm != null
-                ? `${scrotalMeasure.scrotalCircumferenceCm} cm`
-                : '— cm'}
-            </b>
-          </p>
-        )}
-      </section>
-
-      <section className="cert-section">
-        <div className="section-title">
-          <div>
-            <h2>Ganancia diaria de peso</h2>
-            <small>GDP · kg por día entre pesajes</small>
-          </div>
-        </div>
-        {gdpValues.length > 0 ? (
-          <div className="chart">
-            <svg viewBox="0 0 600 140" role="img" aria-label="Gráfica de ganancia diaria de peso">
-              <path d="M0 20H600M0 70H600M0 120H600" />
-              {gdpValues.length > 1 && (
-                <polyline
-                  points={gdpValues.map((v, i) => `${getX(i)},${getY(v)}`).join(' ')}
-                />
-              )}
-              {gdpValues.map((v, i) => (
-                <circle key={i} cx={getX(i)} cy={getY(v)} r="5" fill="var(--tone)" />
-              ))}
-            </svg>
-            <div>
-              {gdpValues.map((v, i) => (
-                <small key={i}>{v.toFixed(3)} kg/día</small>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="muted">Se requieren dos pesajes con fecha para calcular la GDP.</p>
-        )}
-        <div className="measurements">
-          <div>
-            <b>Hito</b>
-            <b>Fecha</b>
-            <b>Peso</b>
-            <b>Circunferencia</b>
-          </div>
-          {weights.map((m, i) => (
-            <div key={m.id || i}>
-              <span>{labelOf(m.milestone)}</span>
-              <span>{formatDate(m.date)}</span>
-              <span>{`${m.weightKg.toFixed(1)} kg`}</span>
-              <span>
-                {m.scrotalCircumferenceCm != null ? `${m.scrotalCircumferenceCm} cm` : '—'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
+      <AnimalWeightsSection animal={animal} activeRanchId={activeRanchId} />
 
       <footer>
         <span>
