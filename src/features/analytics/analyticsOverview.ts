@@ -1,14 +1,14 @@
 export interface SeasonReproductionMetric {
   seasonKey: string;
   seasonLabel: string;
-  exposedFemales: number;
-  diagnosed: number;
-  pregnant: number;
+  exposedFemales: number | null;
+  diagnosed: number | null;
+  pregnant: number | null;
   pregnancyPct: number | null;
-  births: number;
+  births: number | null;
   birthsPerPregnantPct: number | null;
   birthsPerExposedPct: number | null;
-  offspringBorn: number;
+  offspringBorn: number | null;
   prolificity: number | null;
 }
 
@@ -49,9 +49,9 @@ function toOptionalFiniteNumber(...values: unknown[]): number | null {
   return null;
 }
 
-function toNonNegativeCount(...values: unknown[]): number {
+function toOptionalNonNegativeCount(...values: unknown[]): number | null {
   const n = toOptionalFiniteNumber(...values);
-  if (n === null || n < 0) return 0;
+  if (n === null || n < 0) return null;
   return Math.trunc(n);
 }
 
@@ -104,16 +104,16 @@ export function normalizeSeasonIndicator(
       obj.label
     ) ?? `season-${String(index + 1).padStart(2, '0')}`;
 
-  const exposedFemales = toNonNegativeCount(
+  const exposedFemales = toOptionalNonNegativeCount(
     obj.exposedFemales,
     obj.exposed_females,
     obj.exposed,
     obj.expuestas
   );
-  const diagnosed = toNonNegativeCount(obj.diagnosed, obj.diagnosticadas);
-  const pregnant = toNonNegativeCount(obj.pregnant, obj.prenadas);
-  const births = toNonNegativeCount(obj.births, obj.partos);
-  const offspringBorn = toNonNegativeCount(
+  const diagnosed = toOptionalNonNegativeCount(obj.diagnosed, obj.diagnosticadas);
+  const pregnant = toOptionalNonNegativeCount(obj.pregnant, obj.prenadas);
+  const births = toOptionalNonNegativeCount(obj.births, obj.partos);
+  const offspringBorn = toOptionalNonNegativeCount(
     obj.offspringBorn,
     obj.offspring_born,
     obj.crias_nacidas,
@@ -129,9 +129,9 @@ export function normalizeSeasonIndicator(
   const pregnancyPct =
     explicitPregnancyPct !== null
       ? roundTo(explicitPregnancyPct, 1)
-      : diagnosed > 0
+      : pregnant !== null && diagnosed !== null && diagnosed > 0
         ? roundTo((pregnant / diagnosed) * 100, 1)
-        : exposedFemales > 0
+        : pregnant !== null && exposedFemales !== null && exposedFemales > 0
           ? roundTo((pregnant / exposedFemales) * 100, 1)
           : null;
 
@@ -145,7 +145,7 @@ export function normalizeSeasonIndicator(
   const birthsPerPregnantPct =
     explicitBirthsPerPregnantPct !== null
       ? roundTo(explicitBirthsPerPregnantPct, 1)
-      : pregnant > 0
+      : births !== null && pregnant !== null && pregnant > 0
         ? roundTo((births / pregnant) * 100, 1)
         : null;
 
@@ -163,7 +163,7 @@ export function normalizeSeasonIndicator(
   const birthsPerExposedPct =
     explicitBirthsPerExposedPct !== null
       ? roundTo(explicitBirthsPerExposedPct, 1)
-      : exposedFemales > 0
+      : births !== null && exposedFemales !== null && exposedFemales > 0
         ? roundTo((births / exposedFemales) * 100, 1)
         : null;
 
@@ -177,7 +177,7 @@ export function normalizeSeasonIndicator(
   const prolificity =
     explicitProlificity !== null
       ? roundTo(explicitProlificity, 2)
-      : births > 0
+      : offspringBorn !== null && births !== null && births > 0
         ? roundTo(offspringBorn / births, 2)
         : null;
 
@@ -198,17 +198,27 @@ export function normalizeSeasonIndicator(
 
 function aggregateMatchedRatio(
   seasons: SeasonReproductionMetric[],
-  getNumerator: (s: SeasonReproductionMetric) => number,
-  getDenominator: (s: SeasonReproductionMetric) => number,
+  getNumerator: (s: SeasonReproductionMetric) => number | null,
+  getDenominator: (s: SeasonReproductionMetric) => number | null,
   getFallbackRate: (s: SeasonReproductionMetric) => number | null,
   denominatorLabel: string,
   scale: number,
   decimals: number
 ): { value: number | null; ratio: RatioAggregate | null } {
-  const matched = seasons.filter((s) => getDenominator(s) > 0);
+  const matched = seasons.filter((s) => {
+    const num = getNumerator(s);
+    const den = getDenominator(s);
+    return num !== null && den !== null && den > 0;
+  });
   if (matched.length > 0) {
-    const numerator = matched.reduce((acc, s) => acc + getNumerator(s), 0);
-    const denominator = matched.reduce((acc, s) => acc + getDenominator(s), 0);
+    const numerator = matched.reduce(
+      (acc, s) => acc + (getNumerator(s) ?? 0),
+      0
+    );
+    const denominator = matched.reduce(
+      (acc, s) => acc + (getDenominator(s) ?? 0),
+      0
+    );
     return {
       value: roundTo((numerator / denominator) * scale, decimals),
       ratio: { numerator, denominator, denominatorLabel },
@@ -257,13 +267,22 @@ export function normalizeReproductiveOverview(
   // Use diagnosed coverage when all pregnancy-reporting seasons have diagnosed > 0;
   // if diagnosed coverage is incomplete across seasons, prefer consistent exposed-female
   // coverage when complete, otherwise sum only seasons with diagnosed > 0.
-  const hasDiagnosedCoverage = seasons.some((s) => s.diagnosed > 0);
+  const hasDiagnosedCoverage = seasons.some(
+    (s) => s.pregnant !== null && s.diagnosed !== null && s.diagnosed > 0
+  );
   const hasIncompleteDiagnosed = seasons.some(
-    (s) => s.pregnant > 0 && s.diagnosed === 0
+    (s) => s.pregnant !== null && (s.diagnosed === null || s.diagnosed === 0)
   );
   const hasCompleteExposed =
-    seasons.some((s) => s.exposedFemales > 0) &&
-    !seasons.some((s) => s.pregnant > 0 && s.exposedFemales === 0);
+    seasons.some(
+      (s) =>
+        s.pregnant !== null && s.exposedFemales !== null && s.exposedFemales > 0
+    ) &&
+    !seasons.some(
+      (s) =>
+        s.pregnant !== null &&
+        (s.exposedFemales === null || s.exposedFemales === 0)
+    );
 
   const pregnancyAgg =
     hasDiagnosedCoverage && (!hasIncompleteDiagnosed || !hasCompleteExposed)

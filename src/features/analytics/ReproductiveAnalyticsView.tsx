@@ -35,6 +35,35 @@ function formatRatio(value: number | null): string {
   return value !== null && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
 
+function formatCount(value: number | null): string {
+  return value !== null && Number.isFinite(value) ? String(value) : '—';
+}
+
+function getSeasonalPregnancySubtitle(
+  seasons: SeasonReproductionMetric[]
+): string {
+  const hasDiagnosedBars = seasons.some(
+    (s) => s.pregnancyPct !== null && s.diagnosed !== null && s.diagnosed > 0
+  );
+  const hasExposedOnlyBars = seasons.some(
+    (s) =>
+      s.pregnancyPct !== null &&
+      (s.diagnosed === null || s.diagnosed === 0) &&
+      s.exposedFemales !== null &&
+      s.exposedFemales > 0
+  );
+  if (hasDiagnosedBars && hasExposedOnlyBars) {
+    return 'Por temporada: preñadas / diagnosticadas (o / expuestas cuando no hay diagnóstico)';
+  }
+  if (hasExposedOnlyBars && !hasDiagnosedBars) {
+    return 'Por temporada: hembras preñadas respecto al total expuesto';
+  }
+  if (hasDiagnosedBars) {
+    return 'Por temporada: hembras preñadas respecto al total diagnosticado';
+  }
+  return 'Por temporada: porcentaje de preñez reportado (diagnosticadas o expuestas)';
+}
+
 function getDataIndex(params: unknown): number {
   const first = Array.isArray(params) ? params[0] : params;
   if (
@@ -62,14 +91,23 @@ function buildPregnancyOption(
         const idx = getDataIndex(params);
         const s = seasons[idx];
         if (!s) return '';
-        return [
+        const lines = [
           `<strong>${escapeHtml(s.seasonLabel)}</strong>`,
           `% de preñez: <b>${formatPct(s.pregnancyPct)}</b>`,
-          s.diagnosed > 0
-            ? `Preñadas: ${s.pregnant} / Diagnosticadas: ${s.diagnosed}`
-            : `Preñadas: ${s.pregnant} / Expuestas: ${s.exposedFemales}`,
-          `Hembras expuestas: ${s.exposedFemales}`,
-        ].join('<br/>');
+        ];
+        if (s.diagnosed !== null && s.diagnosed > 0) {
+          lines.push(
+            `Preñadas: ${formatCount(s.pregnant)} / Diagnosticadas: ${s.diagnosed}`
+          );
+        } else if (s.exposedFemales !== null && s.exposedFemales > 0) {
+          lines.push(
+            `Preñadas: ${formatCount(s.pregnant)} / Expuestas: ${s.exposedFemales}`
+          );
+        }
+        if (s.exposedFemales !== null) {
+          lines.push(`Hembras expuestas: ${s.exposedFemales}`);
+        }
+        return lines.join('<br/>');
       },
     },
     xAxis: {
@@ -125,12 +163,21 @@ function buildBirthRatesOption(
         const idx = getDataIndex(params);
         const s = seasons[idx];
         if (!s) return '';
-        return [
+        const lines = [
           `<strong>${escapeHtml(s.seasonLabel)}</strong>`,
           `Paridas / Preñadas: <b>${formatPct(s.birthsPerPregnantPct)}</b>`,
           `Paridas / Expuestas: <b>${formatPct(s.birthsPerExposedPct)}</b>`,
-          `Partos: ${s.births} · Preñadas: ${s.pregnant} · Expuestas: ${s.exposedFemales}`,
-        ].join('<br/>');
+        ];
+        if (
+          s.births !== null ||
+          s.pregnant !== null ||
+          s.exposedFemales !== null
+        ) {
+          lines.push(
+            `Partos: ${formatCount(s.births)} · Preñadas: ${formatCount(s.pregnant)} · Expuestas: ${formatCount(s.exposedFemales)}`
+          );
+        }
+        return lines.join('<br/>');
       },
     },
     xAxis: {
@@ -184,11 +231,16 @@ function buildProlificityOption(
         const idx = getDataIndex(params);
         const s = seasons[idx];
         if (!s) return '';
-        return [
+        const lines = [
           `<strong>${escapeHtml(s.seasonLabel)}</strong>`,
           `Prolificidad: <b>${formatRatio(s.prolificity)} crías/parto</b>`,
-          `Crías nacidas: ${s.offspringBorn} / Partos: ${s.births}`,
-        ].join('<br/>');
+        ];
+        if (s.offspringBorn !== null || s.births !== null) {
+          lines.push(
+            `Crías nacidas: ${formatCount(s.offspringBorn)} / Partos: ${formatCount(s.births)}`
+          );
+        }
+        return lines.join('<br/>');
       },
     },
     xAxis: {
@@ -421,14 +473,14 @@ export function ReproductiveAnalyticsView({
               <div className="analytics-chart-head">
                 <div>
                   <h2>% de preñez por temporada</h2>
-                  <p>
-                    {overview.pregnancyRatio?.denominatorLabel === 'expuestas'
-                      ? 'Hembras preñadas respecto al total expuesto'
-                      : 'Hembras preñadas respecto al total diagnosticado'}
-                  </p>
+                  <p>{getSeasonalPregnancySubtitle(seasons)}</p>
                 </div>
                 <span className="analytics-chart-pill">
-                  Global: {formatPct(overview.overallPregnancyPct)}
+                  Global
+                  {overview.pregnancyRatio
+                    ? ` (${overview.pregnancyRatio.denominatorLabel})`
+                    : ''}
+                  : {formatPct(overview.overallPregnancyPct)}
                 </span>
               </div>
               <EChartPanel
@@ -503,20 +555,20 @@ export function ReproductiveAnalyticsView({
                       <td>
                         <strong>{s.seasonLabel}</strong>
                       </td>
-                      <td className="num">{s.exposedFemales}</td>
-                      <td className="num">{s.diagnosed}</td>
-                      <td className="num">{s.pregnant}</td>
+                      <td className="num">{formatCount(s.exposedFemales)}</td>
+                      <td className="num">{formatCount(s.diagnosed)}</td>
+                      <td className="num">{formatCount(s.pregnant)}</td>
                       <td className="num analytics-num-strong">
                         {formatPct(s.pregnancyPct)}
                       </td>
-                      <td className="num">{s.births}</td>
+                      <td className="num">{formatCount(s.births)}</td>
                       <td className="num analytics-num-strong">
                         {formatPct(s.birthsPerPregnantPct)}
                       </td>
                       <td className="num analytics-num-strong">
                         {formatPct(s.birthsPerExposedPct)}
                       </td>
-                      <td className="num">{s.offspringBorn}</td>
+                      <td className="num">{formatCount(s.offspringBorn)}</td>
                       <td className="num analytics-num-strong">
                         {formatRatio(s.prolificity)}
                       </td>
