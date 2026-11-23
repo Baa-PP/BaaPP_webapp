@@ -91,6 +91,22 @@ npm run dev
   VITE_API_BASE_URL=http://localhost:5000/api/v1
   ```
 
+### 3. Verificación de Seguridad y Prueba Manual E2E (WEB-026)
+
+1. **Verificación automática de cliente (Node.js 20+):**
+   ```bash
+   npm run build
+   npm run verify:security
+   ```
+   Audita ausencia de secretos o variables `VITE_*` sensibles en `src/`, `.env.example` y `dist/`, compila y valida la política HTTPS de [`src/api/config.ts`](src/api/config.ts), comprueba el bloqueo de redirecciones (`redirect: "error"`) en `/auth/login` y `/auth/refresh`, y simula con `fetch` el manejo cliente de respuestas `403`. No inicia un backend real ni ejecuta navegador E2E.
+
+2. **Prueba manual E2E de rechazo `BE-002` (backend real + alerta UI):**
+   * Levanta [`BaaPP-backend`](https://github.com/Baa-PP/BaaPP-backend) con la regla `BE-002` activa y abre el portal web (`npm run dev`).
+   * Inicia sesión con un usuario de rol `OWNER` y verifica acceso normal a su rancho propio (`rancho A`).
+   * Envía o intercepta una petición autenticada (por ejemplo desde DevTools o un proxy local) cambiando el header `X-Active-Ranch-Id` al UUID de un rancho ajeno (`rancho B`).
+   * Verifica que el backend responda `HTTP 403` (`RANCH_ACCESS_DENIED`) y que la UI muestre el banner de alerta `.security-alert` indicando la denegación de acceso.
+   * **Estado en este repositorio:** la comprobación automática de cliente y redirecciones está validada con `fetch` simulado; el repositorio no cuenta con runner E2E ni backend embebido en CI, por lo que la validación integral contra `BE-002` requiere ejecutar este procedimiento manual con el backend levantado.
+
 ---
 
 ## Equipo de Desarrollo
