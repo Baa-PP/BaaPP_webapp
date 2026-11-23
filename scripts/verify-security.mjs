@@ -202,6 +202,7 @@ try {
   globalThis.localStorage = createStorageMock();
   globalThis.window = { location: { protocol: "https:", hash: "#/inventario" } };
 
+  let allowRefreshSuccess = false;
   const observedRequests = [];
   globalThis.fetch = async (url, init = {}) => {
     const headers = new Headers(init.headers);
@@ -245,12 +246,88 @@ try {
         "error",
         "POST /auth/refresh debe ejecutarse con redirect: 'error'"
       );
+      if (allowRefreshSuccess) {
+        return new Response(
+          JSON.stringify({ accessToken: "refreshed-jwt-token" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
       return {
         ok: true,
         status: 200,
         redirected: true,
         headers: new Headers(),
         json: async () => ({ accessToken: "stolen-token" }),
+      };
+    }
+
+    if (urlStr.endsWith("/animals-body-redirect")) {
+      assert.equal(
+        init.redirect,
+        "error",
+        "Petición con body debe usar redirect: 'error'"
+      );
+      return new Response(null, {
+        status: 307,
+        headers: { Location: "http://evil.baapp.local/api/v1/animals" },
+      });
+    }
+
+    if (urlStr.endsWith("/animals-stale-token")) {
+      assert.equal(
+        init.redirect,
+        "error",
+        "Reintento por token más nuevo con body debe usar redirect: 'error'"
+      );
+      if (headers.get("Authorization") === "Bearer stale-token") {
+        sessionStorage.setItem("jwt_token", "already-fresh-token");
+        return new Response(JSON.stringify({ message: "Expired" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      assert.equal(headers.get("Authorization"), "Bearer already-fresh-token");
+      return new Response(JSON.stringify({ retried: "stale" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (urlStr.endsWith("/animals-concurrent-body")) {
+      assert.equal(
+        init.redirect,
+        "error",
+        "Petición concurrente con body y sus reintentos deben usar redirect: 'error'"
+      );
+      if (headers.get("Authorization") !== "Bearer refreshed-jwt-token") {
+        return new Response(JSON.stringify({ message: "Expired" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ retried: "refreshed" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (urlStr.endsWith("/animals-downgraded-url")) {
+      return {
+        ok: true,
+        status: 200,
+        url: "http://evil.baapp.local/api/v1/animals",
+        headers: new Headers(),
+        json: async () => ({ items: [] }),
+      };
+    }
+
+    if (urlStr.endsWith("/animals-localhost-ok")) {
+      return {
+        ok: true,
+        status: 200,
+        url: "http://localhost:5000/api/v1/animals",
+        headers: new Headers(),
+        json: async () => ({ localOk: true }),
       };
     }
 
@@ -380,12 +457,78 @@ try {
   );
   assert.equal(observedRequests.at(-1).url, `${mockApiBaseUrl}/auth/refresh`);
   assert.equal(observedRequests.at(-1).redirect, "error");
+
+  // Caso H: las 4 rutas fetch de apiFetch bloquean redirecciones en peticiones con body
+  await assert.rejects(
+    () =>
+      apiFetch("/animals-body-redirect", {
+        method: "POST",
+        body: JSON.stringify({ tag: "01" }),
+        ranchId: ownRanchId,
+      }),
+    (err) => err?.status === 0 && err?.code === "REDIRECT_BLOCKED"
+  );
+
+  sessionStorage.setItem("jwt_token", "stale-token");
+  const staleRetryRes = await apiFetch("/animals-stale-token", {
+    method: "POST",
+    body: JSON.stringify({ tag: "02" }),
+    ranchId: ownRanchId,
+  });
+  assert.deepEqual(staleRetryRes, { retried: "stale" });
+
+  allowRefreshSuccess = true;
+  sessionStorage.setItem("jwt_token", "expired-jwt-token");
+  sessionStorage.setItem("jwt_refresh_token", "owner-refresh-token");
+  const refreshCountBefore = observedRequests.filter((r) =>
+    r.url.endsWith("/auth/refresh")
+  ).length;
+  const [leaderRes, queuedRes] = await Promise.all([
+    apiFetch("/animals-concurrent-body", {
+      method: "POST",
+      body: JSON.stringify({ tag: "03" }),
+      ranchId: ownRanchId,
+    }),
+    apiFetch("/animals-concurrent-body", {
+      method: "POST",
+      body: JSON.stringify({ tag: "04" }),
+      ranchId: ownRanchId,
+    }),
+  ]);
+  assert.deepEqual(leaderRes, { retried: "refreshed" });
+  assert.deepEqual(queuedRes, { retried: "refreshed" });
+  const refreshCountAfter = observedRequests.filter((r) =>
+    r.url.endsWith("/auth/refresh")
+  ).length;
+  assert.equal(refreshCountAfter - refreshCountBefore, 1);
+
+  // Caso I: rechaza URL final no-HTTPS y preserva excepción de localhost HTTP en desarrollo
+  await assert.rejects(
+    () => apiFetch("/animals-downgraded-url", { ranchId: ownRanchId }),
+    (err) => err?.status === 0 && err?.code === "INSECURE_TRANSPORT"
+  );
+
+  globalThis.window = { location: { protocol: "http:", hash: "#/inventario" } };
+  const localClient = await importApiModule("client.ts", {
+    VITE_API_BASE_URL: "http://localhost:5000/api/v1",
+  });
+  const localGet = await localClient.apiFetch("/animals-localhost-ok", {
+    ranchId: ownRanchId,
+  });
+  assert.deepEqual(localGet, { localOk: true });
+  const localPost = await localClient.apiFetch("/animals-localhost-ok", {
+    method: "POST",
+    body: JSON.stringify({ local: true }),
+    ranchId: ownRanchId,
+  });
+  assert.deepEqual(localPost, { localOk: true });
+  assert.equal(observedRequests.at(-1).redirect, "error");
 } finally {
   globalThis.fetch = originalFetch;
 }
 
 console.log(
-  `WEB-026: auditoría de ${srcFiles.length} archivos fuente y ${distFiles.length} artefactos del bundle superada; política de URL base, bloqueo de redirecciones auth y manejo cliente de 403 simulado verificados.`
+  `WEB-026: auditoría de ${srcFiles.length} archivos fuente y ${distFiles.length} artefactos del bundle superada; política de URL base, bloqueo de redirecciones auth/body (incluyendo reintentos y excepción localhost) y manejo cliente de 403 simulado verificados.`
 );
 console.log(
   "El rechazo real del backend BE-002 y el aviso en pantalla se comprueban por separado (tickets/WEB-026.md y README.md)."

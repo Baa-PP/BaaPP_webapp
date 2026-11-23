@@ -1,5 +1,9 @@
 import { useRanchContextStore } from "../store/useRanchContextStore";
-import { API_BASE_URL, API_CONFIG_ERROR } from "./config";
+import {
+  API_BASE_URL,
+  API_CONFIG_ERROR,
+  validateApiBaseUrl,
+} from "./config";
 
 /**
  * WEB-003 — apiFetch: cliente HTTP centralizado.
@@ -212,6 +216,50 @@ function flushQueue(error: unknown, newToken?: string): void {
   });
 }
 
+function hasRequestBody(body: BodyInit | null | undefined): boolean {
+  return body !== undefined && body !== null;
+}
+
+function assertSafeResponseTransport(
+  res: Response,
+  rejectRedirects: boolean,
+  redirectMessage = "Redirección bloqueada por política de seguridad para evitar reenvío de datos."
+): void {
+  if (
+    rejectRedirects &&
+    (res.redirected || (res.status >= 300 && res.status < 400))
+  ) {
+    throw createApiError(0, redirectMessage, "REDIRECT_BLOCKED");
+  }
+
+  if (typeof res.url === "string" && res.url.length > 0) {
+    const pageProtocol =
+      typeof window !== "undefined" ? window.location.protocol : undefined;
+    const targetCheck = validateApiBaseUrl(res.url, pageProtocol);
+    if (targetCheck.error) {
+      throw createApiError(0, targetCheck.error, "INSECURE_TRANSPORT");
+    }
+  }
+}
+
+async function fetchApiResponse(
+  path: string,
+  requestInit: RequestInit
+): Promise<Response> {
+  if (API_CONFIG_ERROR) {
+    throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
+  }
+
+  const hasBody = hasRequestBody(requestInit.body);
+  const effectiveInit: RequestInit = hasBody
+    ? { ...requestInit, redirect: "error" }
+    : requestInit;
+
+  const res = await fetch(`${API_BASE_URL}${path}`, effectiveInit);
+  assertSafeResponseTransport(res, hasBody);
+  return res;
+}
+
 /**
  * Envía una petición JSON de autenticación con credenciales (login / refresh)
  * bloqueando cualquier redirección HTTP para impedir el reenvío de contraseña o
@@ -244,13 +292,11 @@ export async function postAuthEndpoint(
     );
   }
 
-  if (res.redirected || (res.status >= 300 && res.status < 400)) {
-    throw createApiError(
-      0,
-      "Redirección bloqueada por política de seguridad en petición de credenciales.",
-      "REDIRECT_BLOCKED"
-    );
-  }
+  assertSafeResponseTransport(
+    res,
+    true,
+    "Redirección bloqueada por política de seguridad en petición de credenciales."
+  );
 
   return res;
 }
@@ -371,7 +417,7 @@ export async function apiFetch<T>(
     headers.set("X-Active-Ranch-Id", activeRanchId);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchApiResponse(path, {
     ...fetchInit,
     headers,
   });
@@ -387,7 +433,7 @@ export async function apiFetch<T>(
     const currentToken = sessionStorage.getItem("jwt_token");
     if (currentToken && currentToken !== token) {
       headers.set("Authorization", `Bearer ${currentToken}`);
-      const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+      const retryRes = await fetchApiResponse(path, {
         ...fetchInit,
         headers,
       });
@@ -404,7 +450,7 @@ export async function apiFetch<T>(
           resolve: async (newToken: string) => {
             try {
               headers.set("Authorization", `Bearer ${newToken}`);
-              const res = await fetch(`${API_BASE_URL}${path}`, {
+              const res = await fetchApiResponse(path, {
                 ...fetchInit,
                 headers,
               });
@@ -447,7 +493,7 @@ export async function apiFetch<T>(
     isRefreshing = false;
 
     headers.set("Authorization", `Bearer ${newToken}`);
-    const retryRes = await fetch(`${API_BASE_URL}${path}`, {
+    const retryRes = await fetchApiResponse(path, {
       ...fetchInit,
       headers,
     });
