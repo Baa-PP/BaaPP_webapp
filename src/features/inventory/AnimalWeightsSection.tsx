@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../api/client';
 import type { AnimalDetail, AnimalWeight } from './AnimalCertificate';
@@ -42,9 +43,17 @@ export interface NormalizedWeightHistory {
 }
 
 function toFiniteNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? num : null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
 }
 
 function parseDateMs(value?: string): number {
@@ -94,7 +103,7 @@ function buildFallbackHistory(
     const ageDays = birthDate ? daysBetween(birthDate, w.date) : null;
 
     return {
-      id: w.id || `${w.milestone}-${w.date ?? idx}`,
+      id: w.id || `${w.milestone}-${w.date ?? 'nodate'}-${idx}`,
       milestone: w.milestone,
       date: w.date,
       ageDays: ageDays !== null && ageDays >= 0 ? ageDays : null,
@@ -154,14 +163,15 @@ function normalizeBe009History(
     }
   });
 
+  // Preserve the exact array order returned by BE-009 (sorted chronologically by date + UUID.compareTo on server)
   const parsedRows: WeightHistoryRow[] = rawList
     .map((item, idx): WeightHistoryRow | null => {
       if (!item || typeof item !== 'object') return null;
       const m = item as Record<string, unknown>;
       const weightKg = toFiniteNumber(m.weightKg ?? m.weight_kg ?? m.peso_kg);
-      if (weightKg === null) return null;
+      if (weightKg === null || weightKg <= 0) return null;
 
-      const id = String(m.id ?? m.weightId ?? m.weight_id ?? idx).trim();
+      const id = String(m.id ?? m.weightId ?? m.weight_id ?? `row-${idx}`).trim();
       const milestone = String(m.milestone ?? m.hito ?? '').trim().toUpperCase();
       const date =
         typeof (m.date ?? m.measured_at ?? m.fecha) === 'string'
@@ -183,7 +193,7 @@ function normalizeBe009History(
           m.circunferencia_escrotal_cm
       );
       const scrotalCircumferenceCm =
-        rawScrotal ??
+        (rawScrotal !== null && rawScrotal > 0 ? rawScrotal : null) ??
         scrotalById.get(id) ??
         (date ? scrotalByKey.get(`${milestone}|${date}`) ?? null : null);
 
@@ -201,10 +211,9 @@ function normalizeBe009History(
         scrotalCircumferenceCm,
       };
     })
-    .filter((row): row is WeightHistoryRow => row !== null)
-    .sort(compareWeightsChronologically);
+    .filter((row): row is WeightHistoryRow => row !== null);
 
-  // Derive missing gain/interval/age fields from measurements while preserving server-calculated values
+  // Only backfill missing interval fields when the server did not return them at all
   const rows: WeightHistoryRow[] = parsedRows.map((row, idx) => {
     const prev = idx > 0 ? parsedRows[idx - 1] : null;
     const previousWeightKg = row.previousWeightKg ?? (prev ? prev.weightKg : null);
@@ -285,43 +294,51 @@ export function AnimalWeightsSection({
         ? '#1D4ED8'
         : '#1B4332';
 
-  const targetRanchId = animal.ranchId ?? activeRanchId;
-
   const weightsQuery = useQuery({
-    queryKey: ['animal-weights', targetRanchId, animal.id] as const,
-    queryFn: async ({ queryKey }) => {
+    queryKey: ['animal-weights', activeRanchId, animal.id] as const,
+    queryFn: async ({ queryKey, signal }) => {
       const ranchId = queryKey[1];
       const animalId = queryKey[2];
       return apiFetch<unknown>(
         `/animals/${encodeURIComponent(animalId)}/weights`,
-        { ranchId: ranchId ?? undefined }
+        { ranchId: ranchId ?? undefined, signal }
       );
     },
-    enabled: Boolean(animal.id && targetRanchId),
+    enabled: Boolean(animal.id && activeRanchId),
   });
 
-  const history: NormalizedWeightHistory = weightsQuery.data
-    ? normalizeBe009History(weightsQuery.data, animal.weights, animal.birthDate)
-    : buildFallbackHistory(animal.weights, animal.birthDate);
+  const history: NormalizedWeightHistory = useMemo(
+    () =>
+      weightsQuery.data
+        ? normalizeBe009History(weightsQuery.data, animal.weights, animal.birthDate)
+        : buildFallbackHistory(animal.weights, animal.birthDate),
+    [weightsQuery.data, animal.weights, animal.birthDate]
+  );
 
   const rows = history.rows;
 
   // Latest recorded scrotal circumference (ONLY used when animal.sex === 'MALE')
-  const latestScrotalRow = isMale
-    ? [...rows]
-        .reverse()
-        .find((r) => r.scrotalCircumferenceCm !== null)
-    : undefined;
+  const latestScrotalRow = useMemo(
+    () =>
+      isMale
+        ? [...rows].reverse().find((r) => r.scrotalCircumferenceCm !== null)
+        : undefined,
+    [isMale, rows]
+  );
 
-  const chartPoints: GdpChartPoint[] = rows.map((r) => ({
-    label: milestoneLabel(r.milestone),
-    dateLabel: formatDate(r.date),
-    weightKg: r.weightKg,
-    dailyGainGrams: r.dailyGainGrams,
-    dailyGainKg: r.dailyGainKg,
-    gainKg: r.gainKg,
-    daysSincePrevious: r.daysSincePrevious,
-  }));
+  const chartPoints: GdpChartPoint[] = useMemo(
+    () =>
+      rows.map((r) => ({
+        label: milestoneLabel(r.milestone),
+        dateLabel: formatDate(r.date),
+        weightKg: r.weightKg,
+        dailyGainGrams: r.dailyGainGrams,
+        dailyGainKg: r.dailyGainKg,
+        gainKg: r.gainKg,
+        daysSincePrevious: r.daysSincePrevious,
+      })),
+    [rows]
+  );
 
   const hasGdp = rows.some((r) => r.dailyGainGrams !== null);
 
@@ -386,7 +403,9 @@ export function AnimalWeightsSection({
           </div>
           {isMale && (
             <div className="weight-kpi weight-kpi-scrotal">
-              <small>♂ Circunferencia escrotal</small>
+              <small>
+                <span aria-hidden="true">♂</span> Circunferencia escrotal
+              </small>
               <b>
                 {latestScrotalRow?.scrotalCircumferenceCm != null
                   ? `${latestScrotalRow.scrotalCircumferenceCm.toFixed(1)} cm`
@@ -447,16 +466,16 @@ export function AnimalWeightsSection({
             )}
 
             <div className="weights-table-wrap">
-              <table className="weights-table">
+              <table className="weights-table" aria-label="Historial de pesajes y ganancia diaria de peso">
                 <thead>
                   <tr>
-                    <th>Hito</th>
-                    <th>Fecha</th>
-                    <th>Edad</th>
-                    <th>Peso</th>
-                    <th>Ganancia / Intervalo</th>
-                    <th>GDP</th>
-                    {isMale && <th>Circ. escrotal</th>}
+                    <th scope="col">Hito</th>
+                    <th scope="col">Fecha</th>
+                    <th scope="col">Edad</th>
+                    <th scope="col">Peso</th>
+                    <th scope="col">Ganancia / Intervalo</th>
+                    <th scope="col">GDP</th>
+                    {isMale && <th scope="col">Circ. escrotal</th>}
                   </tr>
                 </thead>
                 <tbody>

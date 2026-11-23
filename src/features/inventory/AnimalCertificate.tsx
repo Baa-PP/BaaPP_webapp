@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, getSessionGeneration } from '../../api/client';
+import { API_IS_HTTPS } from '../../api/config';
 import { AnimalWeightsSection } from './AnimalWeightsSection';
 
 export interface AnimalWeight {
@@ -90,10 +91,28 @@ function asNonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+export function parseStrictFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? num : null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
+}
+
 function isSafeHttpUrl(raw?: string | null): raw is string {
   if (!raw) return false;
   try {
     const parsed = new URL(raw);
+    if (parsed.username || parsed.password) return false;
+    if (API_IS_HTTPS) {
+      return parsed.protocol === 'https:';
+    }
     return parsed.protocol === 'https:' || parsed.protocol === 'http:';
   } catch {
     return false;
@@ -113,14 +132,22 @@ export function formatDate(value?: string | null): string {
 
 /**
  * Calcula la edad dinámica en meses y días calendario a partir de birthDate.
+ * Si se provee referenceDate (p. ej. mortalityDate en DECEASED), detiene el cálculo en esa fecha.
  * Si no hay birthDate válida, usa ageDays del backend como respaldo.
  */
-export function formatDynamicAge(birthDate?: string | null, fallbackAgeDays?: number): string {
+export function formatDynamicAge(
+  birthDate?: string | null,
+  fallbackAgeDays?: number,
+  referenceDate?: string | null
+): string {
   if (birthDate) {
     const birth = new Date(birthDate + (birthDate.length === 10 ? 'T00:00:00' : ''));
     if (!Number.isNaN(birth.getTime())) {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const refParsed = referenceDate
+        ? new Date(referenceDate + (referenceDate.length === 10 ? 'T00:00:00' : ''))
+        : null;
+      const refNow = refParsed && !Number.isNaN(refParsed.getTime()) ? refParsed : new Date();
+      const today = new Date(refNow.getFullYear(), refNow.getMonth(), refNow.getDate());
       const birthDay = new Date(birth.getFullYear(), birth.getMonth(), birth.getDate());
       if (today < birthDay) {
         return '0 meses, 0 días';
@@ -160,23 +187,20 @@ function normalizeWeights(raw: unknown): AnimalWeight[] {
     .map((item): AnimalWeight | null => {
       if (!item || typeof item !== 'object') return null;
       const m = item as Record<string, unknown>;
-      const weightKg = Number(m.weightKg ?? m.weight_kg ?? m.peso_kg);
-      if (!Number.isFinite(weightKg)) return null;
-      const rawScrotal =
+      const weightKg = parseStrictFiniteNumber(m.weightKg ?? m.weight_kg ?? m.peso_kg);
+      if (weightKg === null || weightKg <= 0) return null;
+      const parsedScrotal = parseStrictFiniteNumber(
         m.scrotalCircumferenceCm ??
-        m.scrotal_circumference_cm ??
-        m.circunferencia_escrotal_cm;
-      const parsedScrotal =
-        rawScrotal !== null && rawScrotal !== undefined && rawScrotal !== ''
-          ? Number(rawScrotal)
-          : null;
+          m.scrotal_circumference_cm ??
+          m.circunferencia_escrotal_cm
+      );
       return {
         id: asNonEmptyString(m.id) ?? undefined,
         milestone: String(m.milestone ?? m.hito ?? '').toUpperCase(),
         weightKg,
         date: asNonEmptyString(m.date ?? m.measured_at ?? m.fecha) ?? undefined,
         scrotalCircumferenceCm:
-          parsedScrotal !== null && Number.isFinite(parsedScrotal) ? parsedScrotal : null,
+          parsedScrotal !== null && parsedScrotal > 0 ? parsedScrotal : null,
       };
     })
     .filter((w): w is AnimalWeight => w !== null);
@@ -197,11 +221,7 @@ export function normalizeAnimalDetail(raw: unknown): AnimalDetail {
   const sex: AnimalDetail['sex'] =
     rawSex === 'FEMALE' ? 'FEMALE' : rawSex === 'MALE' ? 'MALE' : 'UNKNOWN';
 
-  const rawAgeDays = a.ageDays ?? a.age_days ?? a.edad_dias;
-  const parsedAgeDays =
-    rawAgeDays !== null && rawAgeDays !== undefined && rawAgeDays !== ''
-      ? Number(rawAgeDays)
-      : undefined;
+  const parsedAgeDays = parseStrictFiniteNumber(a.ageDays ?? a.age_days ?? a.edad_dias) ?? undefined;
 
   return {
     id: String(a.id ?? a.animalId ?? a.animal_id ?? '').trim(),
@@ -282,7 +302,7 @@ function AnimalPhoto({ animalId, initialUrl, s3Key, ranchId, altText }: AnimalPh
   const reqSeqRef = useRef(0);
 
   const requestPresignedDownload = useCallback(async () => {
-    if (!s3Key) return;
+    if (!s3Key || !ranchId) return;
     const seq = ++reqSeqRef.current;
     const sessionGen = getSessionGeneration();
     setLoadingUrl(true);
@@ -290,7 +310,7 @@ function AnimalPhoto({ animalId, initialUrl, s3Key, ranchId, altText }: AnimalPh
     try {
       const res = await apiFetch<{ downloadUrl?: string; url?: string; data?: { downloadUrl?: string } }>(
         `/media/presigned-download?s3Key=${encodeURIComponent(s3Key)}`,
-        { ranchId: ranchId ?? undefined }
+        { ranchId }
       );
       if (seq !== reqSeqRef.current || getSessionGeneration() !== sessionGen) return;
       const nextUrl = res?.downloadUrl ?? res?.data?.downloadUrl ?? res?.url ?? null;
@@ -322,17 +342,18 @@ function AnimalPhoto({ animalId, initialUrl, s3Key, ranchId, altText }: AnimalPh
     setFetchError('');
     setLoadingUrl(false);
 
-    if (!safeInitial && s3Key) {
+    if (!safeInitial && s3Key && ranchId) {
+      autoRetriedRef.current = true;
       void requestPresignedDownload();
     }
 
     return () => {
       reqSeqRef.current += 1;
     };
-  }, [animalId, safeInitial, s3Key, requestPresignedDownload]);
+  }, [animalId, safeInitial, s3Key, ranchId, requestPresignedDownload]);
 
   function handleImageError() {
-    if (s3Key && !autoRetriedRef.current) {
+    if (s3Key && ranchId && !autoRetriedRef.current) {
       autoRetriedRef.current = true;
       void requestPresignedDownload();
       return;
@@ -474,14 +495,18 @@ export function AnimalCertificate({
             </span>
           </div>
           <dl className="baja-grid">
-            <div>
-              <dt>{isDeceased ? 'Fecha de fallecimiento' : 'Fecha de venta / baja'}</dt>
-              <dd>{animal.mortalityDate ? formatDate(animal.mortalityDate) : 'No registrada'}</dd>
-            </div>
-            <div>
-              <dt>{isDeceased ? 'Causa de muerte' : 'Causa / motivo de baja'}</dt>
-              <dd>{animal.mortalityCause || 'No especificada'}</dd>
-            </div>
+            {(isDeceased || animal.mortalityDate) && (
+              <div>
+                <dt>{isDeceased ? 'Fecha de fallecimiento' : 'Fecha de venta / baja'}</dt>
+                <dd>{animal.mortalityDate ? formatDate(animal.mortalityDate) : 'No registrada'}</dd>
+              </div>
+            )}
+            {(isDeceased || animal.mortalityCause) && (
+              <div>
+                <dt>{isDeceased ? 'Causa de muerte' : 'Causa / motivo de baja'}</dt>
+                <dd>{animal.mortalityCause || 'No especificada'}</dd>
+              </div>
+            )}
             <div>
               <dt>{isDeceased ? 'Etapa al morir' : 'Etapa al causar baja'}</dt>
               <dd>
@@ -501,7 +526,7 @@ export function AnimalCertificate({
           animalId={animal.id}
           initialUrl={animal.photoUrl}
           s3Key={animal.photoS3Key}
-          ranchId={animal.ranchId ?? activeRanchId}
+          ranchId={activeRanchId}
           altText={`Fotografía del ejemplar ${animal.folioInterno || animal.id}`}
         />
 
@@ -529,8 +554,14 @@ export function AnimalCertificate({
               <dd>{formatDate(animal.birthDate)}</dd>
             </div>
             <div>
-              <dt>Edad actual</dt>
-              <dd>{formatDynamicAge(animal.birthDate, animal.ageDays)}</dd>
+              <dt>{isDeceased && animal.mortalityDate ? 'Edad al fallecer' : 'Edad actual'}</dt>
+              <dd>
+                {formatDynamicAge(
+                  animal.birthDate,
+                  animal.ageDays,
+                  isDeceased ? animal.mortalityDate : null
+                )}
+              </dd>
             </div>
           </dl>
 
@@ -606,12 +637,20 @@ export function AnimalCertificate({
           <span aria-hidden="true">{sexSymbol}</span> {labelOf(animal.sex)} ({sheetLabel})
         </span>
         <span>
-          ◇ {animal.breed || 'Raza sin especificar'}
+          <span aria-hidden="true">◇</span> {animal.breed || 'Raza sin especificar'}
           {animal.color ? ` · ${animal.color}` : ''}
         </span>
-        <span>◷ {labelOf(animal.lifeStage)}</span>
-        <span>♡ {labelOf(animal.reproductiveStatus)}</span>
-        {animal.entryReason && <span>↳ Alta: {labelOf(animal.entryReason)}</span>}
+        <span>
+          <span aria-hidden="true">◷</span> {labelOf(animal.lifeStage)}
+        </span>
+        <span>
+          <span aria-hidden="true">♡</span> {labelOf(animal.reproductiveStatus)}
+        </span>
+        {animal.entryReason && (
+          <span>
+            <span aria-hidden="true">↳</span> Alta: {labelOf(animal.entryReason)}
+          </span>
+        )}
       </div>
 
       <AnimalWeightsSection animal={animal} activeRanchId={activeRanchId} />

@@ -64,7 +64,9 @@ export function GdpWeightsChart({ points, accentColor }: GdpWeightsChartProps) {
     chartRef.current = chart;
 
     const handleResize = () => {
-      chart.resize();
+      if (!chart.isDisposed()) {
+        chart.resize();
+      }
     };
 
     let observer: ResizeObserver | null = null;
@@ -130,8 +132,9 @@ export function GdpWeightsChart({ points, accentColor }: GdpWeightsChartProps) {
           }
           if (pt.gainKg !== null && pt.daysSincePrevious !== null) {
             const sign = pt.gainKg >= 0 ? '+' : '';
+            const daysUnit = pt.daysSincePrevious === 1 ? 'día' : 'días';
             lines.push(
-              `Ganancia: <b>${sign}${pt.gainKg.toFixed(2)} kg</b> en ${pt.daysSincePrevious} días`
+              `Ganancia: <b>${sign}${pt.gainKg.toFixed(2)} kg</b> en ${pt.daysSincePrevious} ${daysUnit}`
             );
           }
           return lines.join('<br/>');
