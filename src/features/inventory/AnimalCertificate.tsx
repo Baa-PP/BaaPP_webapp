@@ -251,9 +251,11 @@ export function normalizeAnimalDetail(raw: unknown): AnimalDetail {
     damUno: asNonEmptyString(a.dam_uno ?? a.folio_uno_madre ?? a.dam_folio ?? a.madre_folio),
     weights: normalizeWeights(a.weights ?? a.measurements ?? a.weight_measurements ?? a.pesajes),
     photoS3Key: asNonEmptyString(a.photoS3Key ?? a.photo_s3_key ?? a.foto_s3_key),
-    photoUrl: asNonEmptyString(
-      a.photoUrl ?? a.presigned_photo_url ?? a.photo_presigned_url ?? a.photo_url
-    ),
+    photoUrl:
+      asNonEmptyString(a.photoUrl) ??
+      asNonEmptyString(a.presigned_photo_url) ??
+      asNonEmptyString(a.photo_presigned_url) ??
+      asNonEmptyString(a.photo_url),
   };
 }
 
@@ -387,13 +389,13 @@ function AnimalPhoto({ animalId, initialUrl, s3Key, ranchId, altText }: AnimalPh
 interface AnimalCertificateProps {
   animal: AnimalDetail;
   activeRanchId: string | null;
-  activeRanchName?: string;
+  activeRanchOwner?: string;
 }
 
 export function AnimalCertificate({
   animal,
   activeRanchId,
-  activeRanchName,
+  activeRanchOwner,
 }: AnimalCertificateProps) {
   const isFemale = animal.sex === 'FEMALE';
   const isMale = animal.sex === 'MALE';
@@ -403,12 +405,11 @@ export function AnimalCertificate({
   const sheetLabel = isFemale ? 'HOJA ROSA' : isMale ? 'HOJA AZUL' : 'FICHA INDIVIDUAL';
 
   const criadorValue = animal.criador || 'No especificado';
-  const propietarioValue = animal.propietario || activeRanchName || 'Sin dato';
+  const propietarioValue = animal.propietario || activeRanchOwner || 'Sin dato';
   const differentOrigin = Boolean(
     animal.criador &&
-      (animal.propietario || activeRanchName) &&
-      animal.criador.trim().toLowerCase() !==
-        (animal.propietario || activeRanchName || '').trim().toLowerCase()
+      animal.propietario &&
+      animal.criador.trim().toLowerCase() !== animal.propietario.trim().toLowerCase()
   );
 
   const weights = animal.weights;

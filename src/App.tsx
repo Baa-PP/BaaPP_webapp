@@ -588,7 +588,7 @@ function PortalApp(){
                 <AnimalCertificate
                   animal={animal}
                   activeRanchId={activeRanchId}
-                  activeRanchName={selectedRanch?.name}
+                  activeRanchOwner={selectedRanch?.owner_name}
                 />
               )}
             </>
