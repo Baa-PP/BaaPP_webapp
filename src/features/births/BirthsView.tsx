@@ -6,6 +6,12 @@ import { RanchContextNotice } from '../../components/RanchContextNotice';
 import { RecordedBirthAuditSummary } from './auditApi';
 import { BirthAuditHistory } from './BirthAuditHistory';
 import { BirthAuditModal, BirthAuditMode } from './BirthAuditModal';
+import { SiniigaReconciliationView } from './SiniigaReconciliationView';
+import {
+  computeDaysElapsed,
+  extractYearMonth,
+  getLocalDateKey,
+} from './siniigaReconciliation';
 
 export interface BirthRecord {
   id: string;
@@ -22,6 +28,8 @@ export interface BirthRecord {
   liveBornCount: number;
   stillbornCount: number;
   registeredLambsCount: number | null;
+  subsequentDeceasedCount: number;
+  requestedChipsCount: number | null;
   evidencePhotoUrl?: string;
   evidencePhotoS3Key?: string;
   serverLocked: boolean;
@@ -44,23 +52,6 @@ export interface BirthsViewProps {
 
 const AUDIT_ROLES = new Set(['ASSOCIATION_SUPERUSER', 'VET_TECHNICIAN']);
 const LOCK_THRESHOLD_DAYS = 30;
-const MS_PER_DAY = 86_400_000;
-
-function getLocalDateKey(now: Date = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function parseLocalDateKey(dateKey: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (match) {
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  }
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
 
 function toNonEmptyString(...values: unknown[]): string | undefined {
   for (const v of values) {
@@ -103,62 +94,6 @@ function sanitizePhotoUrl(raw?: string): string | undefined {
     return undefined;
   }
   return undefined;
-}
-
-function computeDaysElapsed(
-  birthDate?: string,
-  referenceDateKey?: string
-): number | null {
-  if (!birthDate) return null;
-  const trimmed = birthDate.trim();
-  if (!trimmed) return null;
-
-  const todayMidnight = parseLocalDateKey(
-    referenceDateKey ?? getLocalDateKey()
-  );
-
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
-  if (isoMatch) {
-    const year = Number(isoMatch[1]);
-    const month = Number(isoMatch[2]) - 1;
-    const day = Number(isoMatch[3]);
-    const birthMidnight = new Date(year, month, day);
-    if (
-      birthMidnight.getFullYear() === year &&
-      birthMidnight.getMonth() === month &&
-      birthMidnight.getDate() === day
-    ) {
-      const diff = Math.round(
-        (todayMidnight.getTime() - birthMidnight.getTime()) / MS_PER_DAY
-      );
-      return Math.max(0, diff);
-    }
-  }
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const parsedMidnight = new Date(
-    parsed.getFullYear(),
-    parsed.getMonth(),
-    parsed.getDate()
-  );
-  const diff = Math.round(
-    (todayMidnight.getTime() - parsedMidnight.getTime()) / MS_PER_DAY
-  );
-  return Math.max(0, diff);
-}
-
-function extractYearMonth(birthDate?: string): string | null {
-  if (!birthDate) return null;
-  const trimmed = birthDate.trim();
-  const match = /^(\d{4}-\d{2})/.exec(trimmed);
-  if (match) return match[1];
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
 }
 
 function getCurrentYearMonth(): string {
@@ -275,6 +210,60 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
       obj.nacidos_muertos
     ) ?? 0;
 
+  const explicitSubsequentDeceased = firstValidInt(
+    obj.subsequentDeceasedCount,
+    obj.subsequent_deceased_count,
+    obj.subsequentDeathsCount,
+    obj.subsequent_deaths_count,
+    obj.deceasedOffspringCount,
+    obj.deceased_offspring_count,
+    obj.deceasedLambsCount,
+    obj.deceased_lambs_count,
+    obj.criasMuertasDespues,
+    obj.crias_muertas_despues,
+    obj.criasMuertasPosteriores,
+    obj.crias_muertas_posteriores,
+    obj.criasFallecidasPosteriores,
+    obj.crias_fallecidas_posteriores,
+    obj.postBirthDeaths,
+    obj.post_birth_deaths
+  );
+
+  const subsequentDeceasedFromLambs = Array.isArray(lambsArray)
+    ? lambsArray.filter((child) => {
+        if (!child || typeof child !== 'object' || Array.isArray(child)) {
+          return false;
+        }
+        const childObj = child as Record<string, unknown>;
+        const rawChildStatus = toNonEmptyString(
+          childObj.status,
+          childObj.estado
+        )?.toUpperCase();
+        return (
+          rawChildStatus === 'DECEASED' ||
+          rawChildStatus === 'DEAD' ||
+          rawChildStatus === 'FALLECIDO' ||
+          rawChildStatus === 'FALLECIDA'
+        );
+      }).length
+    : null;
+
+  const subsequentDeceasedCount =
+    explicitSubsequentDeceased ?? subsequentDeceasedFromLambs ?? 0;
+
+  const requestedChipsCount = firstValidInt(
+    obj.requestedChips,
+    obj.requested_chips,
+    obj.requestedTags,
+    obj.requested_tags,
+    obj.requestedEarTags,
+    obj.requested_ear_tags,
+    obj.aretesSolicitados,
+    obj.aretes_solicitados,
+    obj.chipsSolicitados,
+    obj.chips_solicitados
+  );
+
   const evidencePhotoUrl = sanitizePhotoUrl(
     toNonEmptyString(
       obj.evidencePhotoUrl,
@@ -341,6 +330,8 @@ export function normalizeBirth(raw: unknown, index: number): BirthRecord | null 
     liveBornCount,
     stillbornCount,
     registeredLambsCount,
+    subsequentDeceasedCount,
+    requestedChipsCount,
     evidencePhotoUrl,
     evidencePhotoS3Key,
     serverLocked,
@@ -399,7 +390,7 @@ export function BirthsView({
     mode: BirthAuditMode;
     birth: BirthRecord | null;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<'births' | 'history'>('births');
+  const [activeTab, setActiveTab] = useState<'births' | 'siniiga' | 'history'>('births');
   const [lastAuditSummary, setLastAuditSummary] =
     useState<RecordedBirthAuditSummary | null>(null);
 
@@ -408,7 +399,8 @@ export function BirthsView({
   const auditTriggerRef = useRef<HTMLElement | null>(null);
 
   const isAuditRole = AUDIT_ROLES.has(userRole);
-  const effectiveTab = isAuditRole ? activeTab : 'births';
+  const effectiveTab =
+    activeTab === 'history' && !isAuditRole ? 'births' : activeTab;
 
   // Recompute age-derived daysElapsed and lock status whenever the local calendar day rolls over
   useEffect(() => {
@@ -509,6 +501,39 @@ export function BirthsView({
       return normalizeBirthList(res);
     },
     enabled: Boolean(activeRanchId),
+  });
+
+  const reconciliationQuery = useQuery({
+    queryKey: [
+      'births',
+      username,
+      activeRanchId,
+      'siniiga-reconciliation',
+    ] as const,
+    queryFn: async ({ queryKey }) => {
+      const ranchId = queryKey[2];
+      const rawPayload = await apiFetch<unknown>('/births', {
+        ranchId: ranchId ?? undefined,
+      });
+      return {
+        rawPayload,
+        births: normalizeBirthList(rawPayload),
+      };
+    },
+    enabled: Boolean(activeRanchId && effectiveTab === 'siniiga'),
+  });
+
+  const reconciliationBirths = (
+    reconciliationQuery.data?.births ?? []
+  ).map((birth) => {
+    const daysElapsed = computeDaysElapsed(birth.birthDate, localDateKey);
+    const isLocked =
+      birth.serverLocked ||
+      (daysElapsed !== null && daysElapsed > LOCK_THRESHOLD_DAYS);
+    if (birth.daysElapsed === daysElapsed && birth.isLocked === isLocked) {
+      return birth;
+    }
+    return { ...birth, daysElapsed, isLocked };
   });
 
   const allBirths = (birthsQuery.data ?? []).map((birth) => {
@@ -658,38 +683,60 @@ export function BirthsView({
         </section>
       )}
 
-      {isAuditRole && (
-        <div
-          className="births-tabs"
-          role="tablist"
-          aria-label="Secciones de auditoría de nacimientos"
-          onKeyDown={(e) => {
-            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-            e.preventDefault();
-            const nextTab = effectiveTab === 'births' ? 'history' : 'births';
-            setActiveTab(nextTab);
-            const nextEl = document.getElementById(
-              nextTab === 'births' ? 'births-tab-list' : 'births-tab-history'
-            );
-            nextEl?.focus();
-          }}
+      <div
+        className="births-tabs"
+        role="tablist"
+        aria-label="Secciones de control de nacimientos y chips SINIIGA"
+        onKeyDown={(e) => {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          e.preventDefault();
+          const tabs: ReadonlyArray<'births' | 'siniiga' | 'history'> =
+            isAuditRole ? ['births', 'siniiga', 'history'] : ['births', 'siniiga'];
+          const currentIdx = tabs.indexOf(effectiveTab);
+          const step = e.key === 'ArrowRight' ? 1 : -1;
+          const nextTab = tabs[(currentIdx + step + tabs.length) % tabs.length];
+          setActiveTab(nextTab);
+          const tabIdMap: Record<'births' | 'siniiga' | 'history', string> = {
+            births: 'births-tab-list',
+            siniiga: 'births-tab-siniiga',
+            history: 'births-tab-history',
+          };
+          document.getElementById(tabIdMap[nextTab])?.focus();
+        }}
+      >
+        <button
+          id="births-tab-list"
+          type="button"
+          role="tab"
+          tabIndex={effectiveTab === 'births' ? 0 : -1}
+          className={
+            effectiveTab === 'births'
+              ? 'births-tab births-tab-active'
+              : 'births-tab'
+          }
+          aria-selected={effectiveTab === 'births'}
+          aria-controls="births-panel-list"
+          onClick={() => setActiveTab('births')}
         >
-          <button
-            id="births-tab-list"
-            type="button"
-            role="tab"
-            tabIndex={effectiveTab === 'births' ? 0 : -1}
-            className={
-              effectiveTab === 'births'
-                ? 'births-tab births-tab-active'
-                : 'births-tab'
-            }
-            aria-selected={effectiveTab === 'births'}
-            aria-controls="births-panel-list"
-            onClick={() => setActiveTab('births')}
-          >
-            Partos registrados
-          </button>
+          Partos registrados
+        </button>
+        <button
+          id="births-tab-siniiga"
+          type="button"
+          role="tab"
+          tabIndex={effectiveTab === 'siniiga' ? 0 : -1}
+          className={
+            effectiveTab === 'siniiga'
+              ? 'births-tab births-tab-active'
+              : 'births-tab'
+          }
+          aria-selected={effectiveTab === 'siniiga'}
+          aria-controls="births-panel-siniiga"
+          onClick={() => setActiveTab('siniiga')}
+        >
+          Conciliación SINIIGA (5 meses)
+        </button>
+        {isAuditRole && (
           <button
             id="births-tab-history"
             type="button"
@@ -706,10 +753,10 @@ export function BirthsView({
           >
             Historial de auditoría (inmutable)
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
-      {effectiveTab === 'history' ? (
+      {effectiveTab === 'history' && isAuditRole ? (
         <div
           id="births-panel-history"
           role="tabpanel"
@@ -721,11 +768,39 @@ export function BirthsView({
             ranchName={ranchName}
           />
         </div>
+      ) : effectiveTab === 'siniiga' ? (
+        <div
+          id="births-panel-siniiga"
+          role="tabpanel"
+          aria-labelledby="births-tab-siniiga"
+        >
+          <SiniigaReconciliationView
+            activeRanchId={activeRanchId}
+            ranchName={ranchName}
+            rawPayload={reconciliationQuery.data?.rawPayload}
+            births={reconciliationBirths}
+            loading={reconciliationQuery.isFetching}
+            error={
+              reconciliationQuery.error instanceof Error
+                ? reconciliationQuery.error.message
+                : reconciliationQuery.isError
+                  ? 'No se pudieron consultar los nacimientos del rancho.'
+                  : undefined
+            }
+            onRetry={() => {
+              void reconciliationQuery.refetch();
+            }}
+            onInspectMonthBirths={(monthKey) => {
+              setMonthFilter(monthKey);
+              setActiveTab('births');
+            }}
+          />
+        </div>
       ) : (
         <div
           id="births-panel-list"
-          role={isAuditRole ? 'tabpanel' : undefined}
-          aria-labelledby={isAuditRole ? 'births-tab-list' : undefined}
+          role="tabpanel"
+          aria-labelledby="births-tab-list"
         >
           <section className="births-filter-bar" aria-label="Filtros de partos">
         <div className="births-filter-controls">
