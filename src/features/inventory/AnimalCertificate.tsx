@@ -252,10 +252,9 @@ export function normalizeAnimalDetail(raw: unknown): AnimalDetail {
     weights: normalizeWeights(a.weights ?? a.measurements ?? a.weight_measurements ?? a.pesajes),
     photoS3Key: asNonEmptyString(a.photoS3Key ?? a.photo_s3_key ?? a.foto_s3_key),
     photoUrl:
-      asNonEmptyString(a.photoUrl) ??
-      asNonEmptyString(a.presigned_photo_url) ??
-      asNonEmptyString(a.photo_presigned_url) ??
-      asNonEmptyString(a.photo_url),
+      [a.photoUrl, a.presigned_photo_url, a.photo_presigned_url, a.photo_url]
+        .map(asNonEmptyString)
+        .find((url): url is string => isSafeHttpUrl(url)) ?? null,
   };
 }
 
@@ -405,11 +404,13 @@ export function AnimalCertificate({
   const sheetLabel = isFemale ? 'HOJA ROSA' : isMale ? 'HOJA AZUL' : 'FICHA INDIVIDUAL';
 
   const criadorValue = animal.criador || 'No especificado';
-  const propietarioValue = animal.propietario || activeRanchOwner || 'Sin dato';
+  const effectiveOwner =
+    asNonEmptyString(animal.propietario) ?? asNonEmptyString(activeRanchOwner);
+  const propietarioValue = effectiveOwner || 'Sin dato';
   const differentOrigin = Boolean(
     animal.criador &&
-      animal.propietario &&
-      animal.criador.trim().toLowerCase() !== animal.propietario.trim().toLowerCase()
+      effectiveOwner &&
+      animal.criador.trim().toLowerCase() !== effectiveOwner.toLowerCase()
   );
 
   const weights = animal.weights;
