@@ -64,14 +64,14 @@ export function EChartPanel({
     chartRef.current = instance;
 
     const handleResize = () => {
-      instance.resize();
+      if (!instance.isDisposed()) {
+        instance.resize();
+      }
     };
 
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => {
-        instance.resize();
-      });
+      observer = new ResizeObserver(handleResize);
       observer.observe(el);
     }
     window.addEventListener('resize', handleResize);

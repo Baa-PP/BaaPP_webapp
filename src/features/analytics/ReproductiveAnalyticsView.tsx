@@ -11,6 +11,7 @@ import {
 } from './analyticsFormatters';
 import {
   MORTALITY_ALERT_THRESHOLD_PCT,
+  resolvePendingWeaningsSummary,
   type SeasonReproductionMetric,
 } from './analyticsOverview';
 import { useAnalyticsOverview } from './useAnalyticsOverview';
@@ -20,6 +21,7 @@ export interface ReproductiveAnalyticsViewProps {
   multiRanch: boolean;
   activeRanchId: string | null;
   ranchName?: string;
+  ranchWeaningTargetDays?: number | null;
   ranchesLoading: boolean;
   ranchesError?: string;
   onRetryRanches?: () => void;
@@ -268,6 +270,7 @@ export function ReproductiveAnalyticsView({
   multiRanch,
   activeRanchId,
   ranchName,
+  ranchWeaningTargetDays,
   ranchesLoading,
   ranchesError,
   onRetryRanches,
@@ -282,7 +285,17 @@ export function ReproductiveAnalyticsView({
   const seasons = overview?.seasons ?? [];
   const unproductive = overview?.unproductive;
   const unproductiveAlertCount = unproductive?.alertItems.length ?? 0;
-  const overdueWeaningsCount = overview?.pendingWeanings.overdueCount ?? 0;
+  const resolvedPendingWeanings = useMemo(
+    () =>
+      overview
+        ? resolvePendingWeaningsSummary(
+            overview.pendingWeanings,
+            ranchWeaningTargetDays
+          )
+        : null,
+    [overview, ranchWeaningTargetDays]
+  );
+  const overdueWeaningsCount = resolvedPendingWeanings?.overdueCount ?? 0;
 
   const pregnancyOption = useMemo(
     () => buildPregnancyOption(seasons),
@@ -405,7 +418,9 @@ export function ReproductiveAnalyticsView({
                 : 'destetes vencidos'}
             </strong>
             <p>
-              Superaron la meta de {overview.pendingWeanings.ranchWeaningTargetDays}{' '}
+              Superaron la meta de{' '}
+              {resolvedPendingWeanings?.ranchWeaningTargetDays ??
+                overview.pendingWeanings.ranchWeaningTargetDays}{' '}
               días del rancho sin destete confirmado.
             </p>
           </div>

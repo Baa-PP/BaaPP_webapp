@@ -195,6 +195,7 @@ export interface PendingWeaningsSummary {
   overdueItems: PendingWeaningRecord[];
   upcomingItems: PendingWeaningRecord[];
   ranchWeaningTargetDays: number;
+  hasExplicitRootTarget: boolean;
   overdueCount: number;
   upcomingCount: number;
   dueSoonCount: number;
@@ -229,11 +230,24 @@ function toNonEmptyString(...values: unknown[]): string | undefined {
 
 function toOptionalFiniteNumber(...values: unknown[]): number | null {
   for (const v of values) {
-    if (v === null || v === undefined || v === '' || typeof v === 'boolean') {
+    if (
+      v === null ||
+      v === undefined ||
+      typeof v === 'boolean' ||
+      typeof v === 'object'
+    ) {
       continue;
     }
-    const n = typeof v === 'number' ? v : Number(v);
-    if (Number.isFinite(n)) return n;
+    if (typeof v === 'string') {
+      const trimmed = v.trim();
+      if (trimmed === '') continue;
+      const n = Number(trimmed);
+      if (Number.isFinite(n)) return n;
+      continue;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return v;
+    }
   }
   return null;
 }
@@ -340,7 +354,10 @@ export function normalizeSeasonIndicator(
       ? roundTo(explicitPregnancyPct, 1)
       : pregnant !== null && diagnosed !== null && diagnosed > 0
         ? roundTo((pregnant / diagnosed) * 100, 1)
-        : pregnant !== null && exposedFemales !== null && exposedFemales > 0
+        : pregnant !== null &&
+            (diagnosed === null || (diagnosed === 0 && pregnant > 0)) &&
+            exposedFemales !== null &&
+            exposedFemales > 0
           ? roundTo((pregnant / exposedFemales) * 100, 1)
           : null;
 
@@ -390,7 +407,7 @@ export function normalizeSeasonIndicator(
         ? roundTo(offspringBorn / births, 2)
         : null;
 
-  const offspringDead = toOptionalNonNegativeCount(
+  const explicitOffspringDead = toOptionalNonNegativeCount(
     obj.offspringDead,
     obj.offspring_dead,
     obj.crias_muertas,
@@ -416,6 +433,12 @@ export function normalizeSeasonIndicator(
     obj.crias_muertas_despues,
     obj.muertas_despues
   );
+  const offspringDead =
+    explicitOffspringDead !== null
+      ? explicitOffspringDead
+      : birthDead !== null && preWeaningDead !== null
+        ? birthDead + preWeaningDead
+        : null;
   const explicitAliveAtBirth = toOptionalNonNegativeCount(
     obj.offspringBornAlive,
     obj.offspring_born_alive,
@@ -870,24 +893,33 @@ export function normalizeUnproductiveFemale(
       offspringBorn > 0 &&
       offspringDead / offspringBorn > 0.3);
 
+  const explicitlyHealthyBreeding =
+    explicitUnproductive === false &&
+    suggestion === 'BREEDING' &&
+    explicitInfertility !== true;
+
   const hasProlongedInfertility =
     explicitInfertility !== null
       ? explicitInfertility
-      : (daysSinceLastBirth !== null &&
-          daysSinceLastBirth > 365 &&
-          pregnant !== true) ||
-        (ageDays !== null && ageDays > 600 && births === 0 && pregnant !== true) ||
-        (diagnosed !== null &&
-          diagnosed >= 2 &&
-          pregnancyPct !== null &&
-          pregnancyPct < 50) ||
-        (pregnancyPct !== null &&
-          pregnancyPct === 0 &&
-          (births === null || births === 0) &&
-          pregnant !== true) ||
-        (unproductive && !hasHighMortality) ||
-        (alertReason !== null &&
-          /(infert|sin parir|sin parto|gestar|abierta|vac[ií]a)/i.test(alertReason));
+      : explicitlyHealthyBreeding
+        ? false
+        : (daysSinceLastBirth !== null &&
+            daysSinceLastBirth > 365 &&
+            (ageDays === null || ageDays > 600) &&
+            pregnant !== true) ||
+          (ageDays !== null && ageDays > 600 && births === 0 && pregnant !== true) ||
+          (diagnosed !== null &&
+            diagnosed >= 2 &&
+            pregnancyPct !== null &&
+            pregnancyPct < 50) ||
+          (pregnancyPct !== null &&
+            pregnancyPct === 0 &&
+            (diagnosed === null || diagnosed >= 2) &&
+            (births === null || births === 0) &&
+            pregnant !== true) ||
+          (unproductive && !hasHighMortality) ||
+          (alertReason !== null &&
+            /(infert|sin parir|sin parto|gestar|abierta|vac[ií]a)/i.test(alertReason));
 
   const isAlertCandidate =
     suggestion === 'CULL' ||
@@ -1630,8 +1662,9 @@ export function buildGrowthOverviewSummary(
     saleWeightTargetKg,
     slowGrowthCount: ranking.filter((r) => r.slowGrowth).length,
     reachedTargetCount: ranking.filter((r) => r.reachedSaleTarget).length,
-    projectedSaleCount: ranking.filter((r) => r.estimatedSaleDate !== null)
-      .length,
+    projectedSaleCount: ranking.filter(
+      (r) => !r.reachedSaleTarget && r.estimatedSaleDate !== null
+    ).length,
     hasData:
       extracted.stageAverages.length > 0 ||
       extracted.stagePoints.length > 0 ||
@@ -1880,7 +1913,8 @@ export function buildMortalityWeaningSummary(
 function partitionPendingWeanings(
   items: PendingWeaningRecord[],
   ranchWeaningTargetDays: number,
-  explicitOverdueCount: number | null
+  explicitOverdueCount: number | null,
+  hasExplicitRootTarget: boolean
 ): PendingWeaningsSummary {
   const overdueItems = items
     .filter((item) => item.overdue)
@@ -1920,6 +1954,7 @@ function partitionPendingWeanings(
     overdueItems,
     upcomingItems,
     ranchWeaningTargetDays,
+    hasExplicitRootTarget,
     overdueCount,
     upcomingCount,
     dueSoonCount,
@@ -1931,6 +1966,8 @@ export function resolvePendingWeaningsSummary(
   summary: PendingWeaningsSummary,
   configuredRanchTargetDays?: number | null
 ): PendingWeaningsSummary {
+  if (summary.hasExplicitRootTarget) return summary;
+
   const validConfigured =
     typeof configuredRanchTargetDays === 'number' &&
     Number.isFinite(configuredRanchTargetDays) &&
@@ -1961,7 +1998,8 @@ export function resolvePendingWeaningsSummary(
   return partitionPendingWeanings(
     updatedItems,
     firstExplicitTarget ?? validConfigured,
-    summary.items.length === 0 ? summary.overdueCount : null
+    summary.items.length === 0 ? summary.overdueCount : null,
+    false
   );
 }
 
@@ -1976,7 +2014,7 @@ export function buildPendingWeaningsSummary(
       ? Math.trunc(configuredRanchTargetDays)
       : null;
 
-  const explicitRootTarget = rootObj
+  const rawExplicitRootTarget = rootObj
     ? toOptionalNonNegativeCount(
         rootObj.weaningTargetDays,
         rootObj.weaning_target_days,
@@ -1985,6 +2023,10 @@ export function buildPendingWeaningsSummary(
         rootObj.targetWeaningDays
       )
     : null;
+  const explicitRootTarget =
+    rawExplicitRootTarget !== null && rawExplicitRootTarget > 0
+      ? rawExplicitRootTarget
+      : null;
 
   const defaultTargetDays =
     explicitRootTarget ?? validConfiguredTarget ?? DEFAULT_WEANING_TARGET_DAYS;
@@ -2138,7 +2180,8 @@ export function buildPendingWeaningsSummary(
   return partitionPendingWeanings(
     items,
     inferredTargetDays ?? defaultTargetDays,
-    explicitOverdueCount
+    explicitOverdueCount,
+    explicitRootTarget !== null
   );
 }
 
@@ -2174,13 +2217,14 @@ export function normalizeReproductiveOverview(
     .sort((a, b) => a.seasonKey.localeCompare(b.seasonKey));
 
   // Use diagnosed coverage when all pregnancy-reporting seasons have diagnosed > 0;
-  // if diagnosed coverage is incomplete across seasons, prefer consistent exposed-female
-  // coverage when complete, otherwise sum only seasons with diagnosed > 0.
+  // an undiagnosed new season (diagnosed === 0 && pregnant === 0) does not invalidate diagnosed coverage.
   const hasDiagnosedCoverage = seasons.some(
     (s) => s.pregnant !== null && s.diagnosed !== null && s.diagnosed > 0
   );
   const hasIncompleteDiagnosed = seasons.some(
-    (s) => s.pregnant !== null && (s.diagnosed === null || s.diagnosed === 0)
+    (s) =>
+      s.pregnant !== null &&
+      (s.diagnosed === null || (s.diagnosed === 0 && s.pregnant > 0))
   );
   const hasCompleteExposed =
     seasons.some(

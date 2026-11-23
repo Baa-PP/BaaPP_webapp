@@ -216,7 +216,7 @@ function PendingWeaningSection({
                         >
                           <AlertTriangleIcon size={12} />
                           Vencido
-                          {item.daysToWeaning !== null
+                          {item.daysToWeaning !== null && item.daysToWeaning < 0
                             ? ` (+${Math.abs(item.daysToWeaning)} d)`
                             : ''}
                         </span>

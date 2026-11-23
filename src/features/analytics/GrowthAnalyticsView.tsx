@@ -272,7 +272,9 @@ function buildGdpRankingOption(
     },
     yAxis: {
       type: 'value',
-      min: 0,
+      min: chartEntries.some((item) => (item.dailyGainGrams ?? 0) < 0)
+        ? undefined
+        : 0,
       axisLabel: { color: '#334155', fontSize: 11, formatter: '{value} g/d' },
       splitLine: { lineStyle: { color: '#E2E8F0' } },
     },
@@ -800,6 +802,8 @@ export function GrowthAnalyticsView({
                       </thead>
                       <tbody>
                         {filteredRanking.map((item, idx) => {
+                          const originalRank =
+                            growth.ranking.findIndex((r) => r.key === item.key) + 1;
                           const dest = getDestinationMeta(item.suggestion);
                           const daysRemaining = getDaysUntilDate(
                             item.estimatedSaleDate
@@ -816,7 +820,7 @@ export function GrowthAnalyticsView({
                               }
                             >
                               <td className="analytics-num-strong">
-                                #{idx + 1}
+                                #{originalRank > 0 ? originalRank : idx + 1}
                               </td>
 
                               <td>
