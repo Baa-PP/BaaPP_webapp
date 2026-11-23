@@ -213,14 +213,54 @@ function flushQueue(error: unknown, newToken?: string): void {
 }
 
 /**
+ * Envía una petición JSON de autenticación con credenciales (login / refresh)
+ * bloqueando cualquier redirección HTTP para impedir el reenvío de contraseña o
+ * refresh token fuera de la política de transporte validada.
+ */
+export async function postAuthEndpoint(
+  path: string,
+  body: unknown
+): Promise<Response> {
+  if (API_CONFIG_ERROR) {
+    throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw createApiError(
+      0,
+      "No se pudo completar la autenticación de forma segura (conexión o redirección bloqueada).",
+      "AUTH_TRANSPORT_ERROR"
+    );
+  }
+
+  if (res.redirected || (res.status >= 300 && res.status < 400)) {
+    throw createApiError(
+      0,
+      "Redirección bloqueada por política de seguridad en petición de credenciales.",
+      "REDIRECT_BLOCKED"
+    );
+  }
+
+  return res;
+}
+
+/**
  * Intenta refrescar el JWT contra POST /api/v1/auth/refresh (BE-001).
  * Persiste el nuevo accessToken y cualquier refreshToken rotado solo si
  * la generación de sesión no cambió mientras el request estaba en vuelo.
  */
 async function refreshSession(): Promise<string> {
-  if (API_CONFIG_ERROR) {
-    throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
-  }
   const refreshToken = sessionStorage.getItem("jwt_refresh_token");
   if (!refreshToken) {
     throw createApiError(401, "No hay refresh token disponible.");
@@ -228,15 +268,7 @@ async function refreshSession(): Promise<string> {
 
   const startGeneration = sessionGeneration;
 
-  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-    method: "POST",
-    redirect: "error",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ refreshToken }),
-  });
+  const res = await postAuthEndpoint("/auth/refresh", { refreshToken });
 
   if (!res.ok) {
     throw createApiError(res.status, "Refresh token inválido o expirado.");

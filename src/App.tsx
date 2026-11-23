@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch, clearSession, getSessionGeneration, onForbiddenError, onSessionCleared, onSessionRefreshed, type ApiError, type ForbiddenEvent } from './api/client';
-import { API_BASE_URL, API_CONFIG_ERROR, API_IS_HTTPS } from './api/config';
+import { apiFetch, clearSession, getSessionGeneration, onForbiddenError, onSessionCleared, onSessionRefreshed, postAuthEndpoint, type ApiError, type ForbiddenEvent } from './api/client';
+import { API_CONFIG_ERROR, API_IS_HTTPS } from './api/config';
 import { RanchContextNotice } from './components/RanchContextNotice';
 import { InventoryView } from './features/inventory/InventoryView';
 import { RanchProfileForm } from './features/ranch/RanchProfileForm';
@@ -258,8 +258,7 @@ function PortalApp(){
     e.preventDefault();setBusy(true);setLoginErr('');
     const startGen=getSessionGeneration();
     try{
-      if(API_CONFIG_ERROR)throw Error(API_CONFIG_ERROR);
-      const r=await fetch(`${API_BASE_URL}/auth/login`,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
+      const r=await postAuthEndpoint('/auth/login',{username:user.trim(),password:pass}),p=await payload(r);
       if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
       const d=data(p),t=token(p),u=d.user||{};
       if(!t)throw Error('El servidor no devolvió el token de acceso.');

@@ -173,7 +173,7 @@ for (const file of distFiles) {
 }
 
 console.log(
-  "4. Verificando el manejo de respuestas 403 simuladas en el cliente..."
+  "4. Verificando en el cliente manejo de respuestas 403 y bloqueo de redirecciones en login/refresh (fetch simulado)..."
 );
 
 function createStorageMock() {
@@ -205,13 +205,63 @@ try {
   const observedRequests = [];
   globalThis.fetch = async (url, init = {}) => {
     const headers = new Headers(init.headers);
+    const urlStr = String(url);
     observedRequests.push({
-      url: String(url),
+      url: urlStr,
+      method: init.method ?? "GET",
+      redirect: init.redirect,
       auth: headers.get("Authorization"),
       ranchId: headers.get("X-Active-Ranch-Id"),
     });
 
-    if (String(url).endsWith("/animals")) {
+    if (urlStr.endsWith("/auth/login")) {
+      assert.equal(
+        init.redirect,
+        "error",
+        "POST /auth/login debe ejecutarse con redirect: 'error'"
+      );
+      const bodyText = typeof init.body === "string" ? init.body : "";
+      if (bodyText.includes("force-redirect-throw")) {
+        throw new TypeError("Failed to fetch");
+      }
+      if (bodyText.includes("force-redirected-flag")) {
+        return {
+          ok: true,
+          status: 200,
+          redirected: true,
+          headers: new Headers(),
+          json: async () => ({}),
+        };
+      }
+      return new Response(null, {
+        status: 307,
+        headers: { Location: "http://evil.baapp.local/api/v1/auth/login" },
+      });
+    }
+
+    if (urlStr.endsWith("/auth/refresh")) {
+      assert.equal(
+        init.redirect,
+        "error",
+        "POST /auth/refresh debe ejecutarse con redirect: 'error'"
+      );
+      return {
+        ok: true,
+        status: 200,
+        redirected: true,
+        headers: new Headers(),
+        json: async () => ({ accessToken: "stolen-token" }),
+      };
+    }
+
+    if (urlStr.endsWith("/needs-refresh")) {
+      return new Response(JSON.stringify({ message: "Expired" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (urlStr.endsWith("/animals")) {
       if (headers.get("X-Active-Ranch-Id") !== ownRanchId) {
         return new Response(
           JSON.stringify({
@@ -227,7 +277,7 @@ try {
       });
     }
 
-    if (String(url).endsWith("/analytics/overview")) {
+    if (urlStr.endsWith("/analytics/overview")) {
       return new Response(
         JSON.stringify({ code: "INSUFFICIENT_PERMISSION" }),
         { status: 403, headers: { "Content-Type": "application/json" } }
@@ -240,9 +290,12 @@ try {
     });
   };
 
-  const { apiFetch, onForbiddenError } = await importApiModule("client.ts", {
-    VITE_API_BASE_URL: mockApiBaseUrl,
-  });
+  const { apiFetch, onForbiddenError, postAuthEndpoint } = await importApiModule(
+    "client.ts",
+    {
+      VITE_API_BASE_URL: mockApiBaseUrl,
+    }
+  );
 
   sessionStorage.setItem("jwt_token", "owner-jwt-token");
   const forbiddenEvents = [];
@@ -290,13 +343,50 @@ try {
   );
   assert.equal(forbiddenEvents.length, 3);
   unsub();
+
+  // Caso E: login rechaza error de transporte/redirección de fetch (redirect: "error")
+  await assert.rejects(
+    () =>
+      postAuthEndpoint("/auth/login", {
+        username: "force-redirect-throw",
+        password: "secret",
+      }),
+    (err) => err?.status === 0 && err?.code === "AUTH_TRANSPORT_ERROR"
+  );
+
+  // Caso F: login rechaza respuesta marcada como redirected o HTTP 3xx
+  await assert.rejects(
+    () =>
+      postAuthEndpoint("/auth/login", {
+        username: "force-redirected-flag",
+        password: "secret",
+      }),
+    (err) => err?.status === 0 && err?.code === "REDIRECT_BLOCKED"
+  );
+  await assert.rejects(
+    () =>
+      postAuthEndpoint("/auth/login", {
+        username: "status-307",
+        password: "secret",
+      }),
+    (err) => err?.status === 0 && err?.code === "REDIRECT_BLOCKED"
+  );
+
+  // Caso G: refreshSession ante 401 usa redirect: "error" y rechaza respuestas redirigidas
+  sessionStorage.setItem("jwt_refresh_token", "owner-refresh-token");
+  await assert.rejects(
+    () => apiFetch("/needs-refresh", { ranchId: ownRanchId }),
+    (err) => err?.status === 0 && err?.code === "REDIRECT_BLOCKED"
+  );
+  assert.equal(observedRequests.at(-1).url, `${mockApiBaseUrl}/auth/refresh`);
+  assert.equal(observedRequests.at(-1).redirect, "error");
 } finally {
   globalThis.fetch = originalFetch;
 }
 
 console.log(
-  `WEB-026: auditoría de ${srcFiles.length} archivos fuente y ${distFiles.length} archivos del bundle superada; política de URL base y manejo cliente de 403 simulado verificados.`
+  `WEB-026: auditoría de ${srcFiles.length} archivos fuente y ${distFiles.length} artefactos del bundle superada; política de URL base, bloqueo de redirecciones auth y manejo cliente de 403 simulado verificados.`
 );
 console.log(
-  "El rechazo del backend y el aviso en pantalla se comprueban por separado (tickets/WEB-026.md)."
+  "El rechazo real del backend BE-002 y el aviso en pantalla se comprueban por separado (tickets/WEB-026.md y README.md)."
 );
