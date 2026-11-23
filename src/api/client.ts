@@ -230,6 +230,7 @@ async function refreshSession(): Promise<string> {
 
   const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
     method: "POST",
+    redirect: "error",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",

@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
 import {
   existsSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +57,19 @@ function scanSecrets(label, content) {
   }
 }
 
+async function importApiModule(entryPoint, env = {}) {
+  const bundled = await esbuild({
+    entryPoints: [path.join(srcDir, "api", entryPoint)],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "browser",
+    define: { "import.meta.env": JSON.stringify(env) },
+  });
+  const source = Buffer.from(bundled.outputFiles[0].contents).toString("base64");
+  return import(`data:text/javascript;base64,${source}`);
+}
+
 console.log("1. Auditando variables VITE_* y código fuente en src/...");
 const srcFiles = walkFiles(srcDir);
 for (const file of srcFiles) {
@@ -105,8 +114,7 @@ for (const line of envLines) {
 console.log(
   "2. Validando política HTTPS y rechazo de credenciales en src/api/config.ts..."
 );
-const configUrl = pathToFileURL(path.join(srcDir, "api", "config.ts")).href;
-const { validateApiBaseUrl } = await import(configUrl);
+const { validateApiBaseUrl } = await importApiModule("config.ts");
 
 assert.equal(
   validateApiBaseUrl("https://du6aq4me7fp0q.cloudfront.net/api/v1/").isHttps,
@@ -165,7 +173,7 @@ for (const file of distFiles) {
 }
 
 console.log(
-  "4. Verificando rechazo 403 de BE-002 (OWNER con X-Active-Ranch-Id ajeno)..."
+  "4. Verificando el manejo de respuestas 403 simuladas en el cliente..."
 );
 
 function createStorageMock() {
@@ -188,25 +196,8 @@ const ownRanchId = "11111111-1111-4111-8111-111111111111";
 const foreignRanchId = "99999999-9999-4999-8999-999999999999";
 const mockApiBaseUrl = "https://api.test.baapp.local/api/v1";
 
-const tempDir = mkdtempSync(path.join(os.tmpdir(), "baapp-sec-"));
 const originalFetch = globalThis.fetch;
 try {
-  const bundled = await esbuild({
-    entryPoints: [path.join(srcDir, "api", "client.ts")],
-    bundle: true,
-    write: false,
-    format: "esm",
-    platform: "browser",
-    define: {
-      "import.meta.env": JSON.stringify({
-        VITE_API_BASE_URL: mockApiBaseUrl,
-      }),
-    },
-  });
-
-  const clientOutPath = path.join(tempDir, "client.mjs");
-  writeFileSync(clientOutPath, bundled.outputFiles[0].text, "utf8");
-
   globalThis.sessionStorage = createStorageMock();
   globalThis.localStorage = createStorageMock();
   globalThis.window = { location: { protocol: "https:", hash: "#/inventario" } };
@@ -249,15 +240,15 @@ try {
     });
   };
 
-  const { apiFetch, onForbiddenError } = await import(
-    pathToFileURL(clientOutPath).href
-  );
+  const { apiFetch, onForbiddenError } = await importApiModule("client.ts", {
+    VITE_API_BASE_URL: mockApiBaseUrl,
+  });
 
   sessionStorage.setItem("jwt_token", "owner-jwt-token");
   const forbiddenEvents = [];
   const unsub = onForbiddenError((ev) => forbiddenEvents.push(ev));
 
-  // Caso A: OWNER con su propio rancho recibe 200 OK
+  // Caso A: respuesta simulada 200 para el rancho propio.
   const okRes = await apiFetch("/animals", { ranchId: ownRanchId });
   assert.deepEqual(okRes, { items: [], totalElements: 0 });
   assert.equal(forbiddenEvents.length, 0);
@@ -265,7 +256,7 @@ try {
   assert.equal(observedRequests[0].auth, "Bearer owner-jwt-token");
   assert.equal(observedRequests[0].ranchId, ownRanchId);
 
-  // Caso B: OWNER manipulando X-Active-Ranch-Id hacia rancho ajeno recibe 403 RANCH_ACCESS_DENIED
+  // Caso B: el cliente publica el aviso de acceso denegado al recibir el 403 simulado.
   await assert.rejects(
     () => apiFetch("/animals", { ranchId: foreignRanchId }),
     (err) =>
@@ -301,9 +292,11 @@ try {
   unsub();
 } finally {
   globalThis.fetch = originalFetch;
-  rmSync(tempDir, { recursive: true, force: true });
 }
 
 console.log(
-  `WEB-026 verificado: ${srcFiles.length} archivos fuente y ${distFiles.length} archivos del bundle sin secretos ni URLs inseguras, y manejo 403 BE-002 validado.`
+  `WEB-026: auditoría de ${srcFiles.length} archivos fuente y ${distFiles.length} archivos del bundle superada; política de URL base y manejo cliente de 403 simulado verificados.`
+);
+console.log(
+  "El rechazo del backend y el aviso en pantalla se comprueban por separado (tickets/WEB-026.md)."
 );
