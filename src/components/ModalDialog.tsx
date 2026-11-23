@@ -154,6 +154,7 @@ export function ModalDialog({
           item.el.setAttribute('aria-hidden', item.prevAriaHidden);
         }
       }
+      if (triggerRef) triggerRef.current = null;
       if (trigger?.isConnected) {
         trigger.focus();
       }

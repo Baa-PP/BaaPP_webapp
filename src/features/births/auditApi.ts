@@ -129,8 +129,36 @@ export async function validateEvidenceFile(file: File): Promise<{
       (mimeType === 'image/webp' &&
         matches([82, 73, 70, 70]) && matches([87, 69, 66, 80], 8));
     if (matchesFormat) {
-      const bitmap = await createImageBitmap(file);
-      bitmap.close();
+      if (typeof createImageBitmap === 'function') {
+        const bitmap = await createImageBitmap(file);
+        bitmap.close();
+      } else if (
+        typeof Image !== 'undefined' &&
+        typeof URL !== 'undefined' &&
+        typeof URL.createObjectURL === 'function'
+      ) {
+        const decoded = await new Promise<boolean>((resolve) => {
+          const objectUrl = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(img.naturalWidth > 0 && img.naturalHeight > 0);
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(false);
+          };
+          img.src = objectUrl;
+        });
+        if (!decoded) {
+          return {
+            valid: false,
+            mimeType: null,
+            error:
+              'No se pudo abrir la fotografía como una imagen JPG, PNG o WebP válida.',
+          };
+        }
+      }
       return { valid: true, mimeType, error: null };
     }
   } catch {
@@ -147,12 +175,13 @@ export async function uploadBirthEvidenceToS3(
   file: File,
   mimeType: string,
   ranchId: string,
-  controller: AbortController
+  controller: AbortController,
+  timeoutMs: number = 60_000
 ): Promise<string> {
   const { signal } = controller;
-  const timeout = window.setTimeout(() => {
+  const timeout = globalThis.setTimeout(() => {
     controller.abort(new Error('La carga de la fotografía tardó demasiado. Inténtalo de nuevo.'));
-  }, 60_000);
+  }, timeoutMs);
 
   // apiFetch can wait for a shared session refresh even after its request is aborted.
   let onAbort!: () => void;
@@ -165,7 +194,7 @@ export async function uploadBirthEvidenceToS3(
     signal.throwIfAborted();
     return await Promise.race([interrupted, requestEvidenceUpload(file, mimeType, ranchId, signal)]);
   } finally {
-    window.clearTimeout(timeout);
+    globalThis.clearTimeout(timeout);
     signal.removeEventListener('abort', onAbort);
   }
 }
@@ -400,5 +429,8 @@ export async function fetchRanchParentAnimalsPage(
     });
   }
 
-  return { items, nextPage: page + 1 < totalPages ? page + 1 : undefined };
+  return {
+    items,
+    nextPage: list.length > 0 && page + 1 < totalPages ? page + 1 : undefined,
+  };
 }

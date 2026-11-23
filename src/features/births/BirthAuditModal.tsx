@@ -365,9 +365,9 @@ export function BirthAuditModal({
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['births', username, submissionRanchId] }),
-        qc.invalidateQueries({ queryKey: ['association-audits'] }),
-        qc.invalidateQueries({ queryKey: ['animals'] }),
+        qc.invalidateQueries({ queryKey: ['animals', username, submissionRanchId] }),
       ]);
+      // TODO(WEB-017): invalidar también el queryKey exacto del historial de auditoría cuando exista el lector.
 
       if (isCurrentForm()) onSuccess(summary);
     } catch (err) {
