@@ -2020,3 +2020,219 @@ td small,
     justify-content: flex-end;
   }
 }
+
+/* --- WEB-016: Modal de corrección auditada y alta extemporánea --- */
+.births-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.births-create-audit-btn {
+  height: 44px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.birth-audit-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.birth-audit-success {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #F0FDF4;
+  border: 1px solid #86EFAC;
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.birth-audit-success strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--semantic-success);
+  font-size: 14px;
+}
+
+.birth-audit-success-detail {
+  margin: 2px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.birth-audit-modal-card {
+  max-width: 640px;
+}
+
+.birth-audit-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.birth-audit-body {
+  display: block;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  background: var(--surface-base);
+}
+
+.birth-audit-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.birth-audit-context {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.birth-audit-context .muted {
+  margin: 0;
+  font-size: 13px;
+}
+
+.birth-audit-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.birth-audit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.birth-audit-field span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.birth-audit-field input,
+.birth-audit-field select,
+.birth-audit-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.birth-audit-field input,
+.birth-audit-field select {
+  height: 38px;
+}
+
+.birth-audit-field input[type='file'] {
+  height: auto;
+  padding: 7px 10px;
+}
+
+.birth-audit-field input:focus,
+.birth-audit-field select:focus,
+.birth-audit-field textarea:focus {
+  border-color: var(--accent-secondary);
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -1px;
+}
+
+.birth-audit-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.birth-audit-inline-error {
+  font-size: 12px;
+  color: var(--semantic-danger);
+}
+
+.birth-audit-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+}
+
+.birth-audit-preview-img {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.birth-audit-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.birth-audit-preview-meta strong {
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.birth-audit-alert {
+  padding: 10px 12px;
+  background: var(--semantic-danger-bg);
+  border: 1px solid var(--semantic-danger);
+  border-radius: var(--radius-control);
+  color: var(--semantic-danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.birth-audit-requirement {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.birth-modal-actions .primary {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.birth-modal-actions .primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 640px) {
+  .birth-audit-row {
+    grid-template-columns: 1fr;
+  }
+}
