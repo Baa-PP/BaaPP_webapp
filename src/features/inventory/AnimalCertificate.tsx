@@ -218,8 +218,8 @@ export function normalizeAnimalDetail(raw: unknown): AnimalDetail {
       parsedAgeDays !== undefined && Number.isFinite(parsedAgeDays) ? parsedAgeDays : undefined,
     weaningDate: asNonEmptyString(a.weaningDate ?? a.weaning_date ?? a.fecha_destete),
     entryReason: asNonEmptyString(a.entryReason ?? a.entry_reason ?? a.motivo_alta) ?? undefined,
-    criador: asNonEmptyString(a.criador ?? a.criador_name),
-    propietario: asNonEmptyString(a.propietario ?? a.owner_name ?? a.ranch_name),
+    criador: asNonEmptyString(a.criador) ?? asNonEmptyString(a.criador_name),
+    propietario: asNonEmptyString(a.propietario) ?? asNonEmptyString(a.owner_name),
     lifeStage: asNonEmptyString(a.lifeStage ?? a.life_stage ?? a.etapa_vida) ?? undefined,
     reproductiveStatus:
       asNonEmptyString(

@@ -60,18 +60,28 @@ function daysBetween(startDate?: string, endDate?: string): number | null {
   return Math.round((end - start) / 86400000);
 }
 
+function compareWeightsChronologically(
+  a: { date?: string; id?: string },
+  b: { date?: string; id?: string }
+): number {
+  const ta = parseDateMs(a.date);
+  const tb = parseDateMs(b.date);
+  const aDated = Number.isFinite(ta);
+  const bDated = Number.isFinite(tb);
+  if (aDated !== bDated) {
+    return aDated ? -1 : 1;
+  }
+  if (aDated && bDated && ta !== tb) {
+    return ta - tb;
+  }
+  return (a.id ?? '').localeCompare(b.id ?? '');
+}
+
 function buildFallbackHistory(
   weights: AnimalWeight[],
   birthDate?: string
 ): NormalizedWeightHistory {
-  const sorted = [...weights].sort((a, b) => {
-    const ta = parseDateMs(a.date);
-    const tb = parseDateMs(b.date);
-    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) {
-      return ta - tb;
-    }
-    return (a.id ?? '').localeCompare(b.id ?? '');
-  });
+  const sorted = [...weights].sort(compareWeightsChronologically);
 
   const rows: WeightHistoryRow[] = sorted.map((w, idx) => {
     const prev = idx > 0 ? sorted[idx - 1] : null;
@@ -117,7 +127,8 @@ function buildFallbackHistory(
 
 function normalizeBe009History(
   raw: unknown,
-  detailWeights: AnimalWeight[]
+  detailWeights: AnimalWeight[],
+  birthDate?: string
 ): NormalizedWeightHistory {
   const unwrapped =
     raw && typeof raw === 'object' && 'data' in (raw as Record<string, unknown>)
@@ -143,7 +154,7 @@ function normalizeBe009History(
     }
   });
 
-  const rows: WeightHistoryRow[] = rawList
+  const parsedRows: WeightHistoryRow[] = rawList
     .map((item, idx): WeightHistoryRow | null => {
       if (!item || typeof item !== 'object') return null;
       const m = item as Record<string, unknown>;
@@ -190,19 +201,62 @@ function normalizeBe009History(
         scrotalCircumferenceCm,
       };
     })
-    .filter((row): row is WeightHistoryRow => row !== null);
+    .filter((row): row is WeightHistoryRow => row !== null)
+    .sort(compareWeightsChronologically);
 
-  const overallDailyGainKg = toFiniteNumber(
+  // Derive missing gain/interval/age fields from measurements while preserving server-calculated values
+  const rows: WeightHistoryRow[] = parsedRows.map((row, idx) => {
+    const prev = idx > 0 ? parsedRows[idx - 1] : null;
+    const previousWeightKg = row.previousWeightKg ?? (prev ? prev.weightKg : null);
+    const daysSincePrevious =
+      row.daysSincePrevious ?? (prev ? daysBetween(prev.date, row.date) : null);
+    const gainKg =
+      row.gainKg ?? (previousWeightKg !== null ? row.weightKg - previousWeightKg : null);
+    const derivedDailyGainKg =
+      gainKg !== null && daysSincePrevious !== null && daysSincePrevious > 0
+        ? gainKg / daysSincePrevious
+        : null;
+    const dailyGainKg = row.dailyGainKg ?? derivedDailyGainKg;
+    const dailyGainGrams =
+      row.dailyGainGrams ??
+      (dailyGainKg !== null ? Math.round(dailyGainKg * 1000) : null);
+    const derivedAge = birthDate ? daysBetween(birthDate, row.date) : null;
+    const ageDays =
+      row.ageDays ?? (derivedAge !== null && derivedAge >= 0 ? derivedAge : null);
+
+    return {
+      ...row,
+      ageDays,
+      previousWeightKg,
+      daysSincePrevious,
+      gainKg,
+      dailyGainKg,
+      dailyGainGrams,
+    };
+  });
+
+  const first = rows[0] ?? null;
+  const last = rows.length > 0 ? rows[rows.length - 1] : null;
+  const totalDays = first && last ? daysBetween(first.date, last.date) : null;
+  const derivedOverallDailyGainKg =
+    first && last && totalDays !== null && totalDays > 0
+      ? (last.weightKg - first.weightKg) / totalDays
+      : null;
+
+  const rawOverallKg = toFiniteNumber(
     obj.overallDailyGainKg ?? obj.overall_daily_gain_kg
   );
   const rawOverallGrams = toFiniteNumber(
     obj.overallDailyGainGrams ?? obj.overall_daily_gain_grams
   );
+  const overallDailyGainKg =
+    rawOverallKg ??
+    (rawOverallGrams !== null ? rawOverallGrams / 1000 : derivedOverallDailyGainKg);
 
   return {
     latestWeightKg:
       toFiniteNumber(obj.latestWeightKg ?? obj.latest_weight_kg) ??
-      (rows.length > 0 ? rows[rows.length - 1].weightKg : null),
+      (last ? last.weightKg : null),
     overallDailyGainKg,
     overallDailyGainGrams:
       rawOverallGrams !== null
@@ -247,7 +301,7 @@ export function AnimalWeightsSection({
   });
 
   const history: NormalizedWeightHistory = weightsQuery.data
-    ? normalizeBe009History(weightsQuery.data, animal.weights)
+    ? normalizeBe009History(weightsQuery.data, animal.weights, animal.birthDate)
     : buildFallbackHistory(animal.weights, animal.birthDate);
 
   const rows = history.rows;
