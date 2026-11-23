@@ -2463,3 +2463,186 @@ td small,
     width: 100%;
   }
 }
+
+/* --- WEB-018: Conciliación de chips SINIIGA a 5 meses --- */
+.siniiga-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.siniiga-excess-banner p {
+  margin: 4px 0 0;
+}
+
+.siniiga-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.siniiga-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.siniiga-kpi-danger {
+  border-color: #FECACA;
+  background: linear-gradient(180deg, #FFF5F5 0%, var(--surface-base) 100%);
+}
+
+.siniiga-kpi-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.siniiga-kpi-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.siniiga-kpi-danger .siniiga-kpi-value {
+  color: var(--semantic-danger);
+}
+
+.siniiga-kpi-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.siniiga-scope-select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.siniiga-formula-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.siniiga-row-excess {
+  background: #FFF5F5;
+}
+
+.siniiga-row-excess td:first-child {
+  border-left: 4px solid var(--semantic-danger);
+}
+
+.siniiga-window-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.siniiga-window-pill.window-ready {
+  background: #EEF2FF;
+  color: #1E40AF;
+  border: 1px solid #C7D2FE;
+}
+
+.siniiga-window-pill.window-pending {
+  background: var(--surface-support);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.siniiga-deceased-count {
+  font-weight: 700;
+  color: var(--semantic-danger);
+}
+
+.siniiga-allowed-cell strong {
+  color: var(--brand-primary);
+}
+
+.siniiga-request-input {
+  width: 96px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.siniiga-request-input:focus {
+  border-color: var(--accent-secondary);
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -1px;
+}
+
+.siniiga-input-excess {
+  border-color: var(--semantic-danger);
+  background: var(--semantic-danger-bg);
+  color: var(--semantic-danger);
+  font-weight: 700;
+}
+
+.siniiga-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.siniiga-status-badge.status-excess {
+  background: var(--semantic-danger-bg);
+  color: var(--semantic-danger);
+  border: 1px solid #FECACA;
+}
+
+.siniiga-status-badge.status-ok {
+  background: #F0FDF4;
+  color: var(--semantic-success);
+  border: 1px solid #86EFAC;
+}
+
+.siniiga-status-badge.status-warn {
+  background: #FFFBEB;
+  color: #92400E;
+  border: 1px solid #FDE68A;
+}
+
+.siniiga-status-badge.status-neutral {
+  background: var(--surface-support);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 1000px) {
+  .siniiga-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .siniiga-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
