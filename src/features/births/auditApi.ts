@@ -19,6 +19,48 @@ function isSafePresignedUploadUrl(rawUrl: string): boolean {
   }
 }
 
+function sanitizeHttpMediaUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl) return undefined;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return trimmed;
+  }
+  return isSafePresignedUploadUrl(trimmed) ? trimmed : undefined;
+}
+
+export function associationAuditsQueryKey(
+  username: string,
+  ranchId: string | null
+) {
+  return ['association-audits', username, ranchId] as const;
+}
+
+export interface AuditDiffRow {
+  key: string;
+  label: string;
+  previousDisplay: string;
+  newDisplay: string;
+  changed: boolean;
+}
+
+export interface AuditHistoryEntry {
+  id: string;
+  birthId?: string;
+  ranchId?: string;
+  damLabel?: string;
+  approverLabel: string;
+  reason: string;
+  evidencePhotoS3Key?: string;
+  evidencePhotoUrl?: string;
+  createdAt: string;
+  previousState: Record<string, unknown>;
+  newState: Record<string, unknown>;
+  diffRows: AuditDiffRow[];
+  changedCount: number;
+  isLateCreation: boolean;
+}
+
 export const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -368,9 +410,13 @@ export async function submitBirthAudit(
   return normalizeAuditSummary(response, input);
 }
 
-function extractAnimalListAndTotalPages(res: unknown): {
+function extractPaginatedList(
+  res: unknown,
+  candidateKeys: ReadonlyArray<string>
+): {
   list: unknown[];
   totalPages: number;
+  pageSize?: number;
 } {
   const unwrapped =
     res && typeof res === 'object' && 'data' in (res as Record<string, unknown>)
@@ -385,11 +431,23 @@ function extractAnimalListAndTotalPages(res: unknown): {
   }
   if (unwrapped && typeof unwrapped === 'object') {
     const obj = unwrapped as Record<string, unknown>;
-    const rawList = obj.items ?? obj.content ?? obj.animals;
-    const totalPagesRaw = Number(obj.totalPages ?? 1);
+    let rawList: unknown;
+    for (const key of candidateKeys) {
+      if (Array.isArray(obj[key])) {
+        rawList = obj[key];
+        break;
+      }
+    }
+    const totalPagesRaw = Number(obj.totalPages ?? obj.total_pages ?? 1);
+    const sizeRaw = Number(obj.size ?? obj.pageSize ?? obj.page_size);
     return {
       list: Array.isArray(rawList) ? rawList : [],
-      totalPages: Number.isSafeInteger(totalPagesRaw) && totalPagesRaw > 0 ? totalPagesRaw : 1,
+      totalPages:
+        Number.isSafeInteger(totalPagesRaw) && totalPagesRaw > 0
+          ? totalPagesRaw
+          : 1,
+      pageSize:
+        Number.isSafeInteger(sizeRaw) && sizeRaw > 0 ? sizeRaw : undefined,
     };
   }
   return { list: [], totalPages: 1 };
@@ -405,7 +463,11 @@ export async function fetchRanchParentAnimalsPage(
     `/animals?sexo=${sex}&estado=ACTIVE&page=${page}&size=100`,
     { ranchId, signal }
   );
-  const { list, totalPages } = extractAnimalListAndTotalPages(res);
+  const { list, totalPages } = extractPaginatedList(res, [
+    'items',
+    'content',
+    'animals',
+  ]);
   const items: RanchAnimalOption[] = [];
 
   for (const item of list) {
@@ -433,4 +495,384 @@ export async function fetchRanchParentAnimalsPage(
     items,
     nextPage: list.length > 0 && page + 1 < totalPages ? page + 1 : undefined,
   };
+}
+
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  fecha: 'Fecha de parto',
+  birthDate: 'Fecha de parto',
+  birth_date: 'Fecha de parto',
+  nacidos_vivos: 'Nacidos vivos',
+  liveBornCount: 'Nacidos vivos',
+  live_born_count: 'Nacidos vivos',
+  nacidos_muertos: 'Nacidos muertos',
+  stillbornCount: 'Nacidos muertos',
+  stillborn_count: 'Nacidos muertos',
+  tipo_parto: 'Tipo de parto',
+  parturitionType: 'Tipo de parto',
+  parturition_type: 'Tipo de parto',
+  birthType: 'Tipo de parto',
+  birth_type: 'Tipo de parto',
+  metodo_concepcion: 'Método de concepción',
+  conceptionMethod: 'Método de concepción',
+  conception_method: 'Método de concepción',
+  madre_folio: 'Madre (folio)',
+  damFolio: 'Madre (folio)',
+  dam_folio: 'Madre (folio)',
+  madre_id: 'Madre (ID)',
+  damId: 'Madre (ID)',
+  dam_id: 'Madre (ID)',
+  padre_folio: 'Padre (folio)',
+  sireFolio: 'Padre (folio)',
+  sire_folio: 'Padre (folio)',
+  padre_id: 'Padre (ID)',
+  sireId: 'Padre (ID)',
+  sire_id: 'Padre (ID)',
+  semental_externo_folio: 'Semental externo',
+  externalSireFolio: 'Semental externo',
+  external_sire_folio: 'Semental externo',
+  foto_evidencia_s3_key: 'Evidencia S3',
+  evidencePhotoS3Key: 'Evidencia S3',
+  evidence_photo_s3_key: 'Evidencia S3',
+  bloqueado: 'Bloqueo >30 días',
+  locked: 'Bloqueo >30 días',
+  isLocked: 'Bloqueo >30 días',
+};
+
+const PRIORITY_AUDIT_KEYS = [
+  'fecha',
+  'birthDate',
+  'birth_date',
+  'nacidos_vivos',
+  'liveBornCount',
+  'live_born_count',
+  'nacidos_muertos',
+  'stillbornCount',
+  'stillborn_count',
+  'tipo_parto',
+  'parturitionType',
+  'parturition_type',
+  'metodo_concepcion',
+  'conceptionMethod',
+  'conception_method',
+  'madre_folio',
+  'damFolio',
+  'madre_id',
+  'damId',
+  'padre_folio',
+  'sireFolio',
+  'padre_id',
+  'sireId',
+  'semental_externo_folio',
+  'externalSireFolio',
+  'foto_evidencia_s3_key',
+  'evidencePhotoS3Key',
+] as const;
+
+const VALUE_TRANSLATIONS: Record<string, string> = {
+  MN: 'Monta natural (MN)',
+  IA: 'Inseminación artificial (IA)',
+  TE: 'Transferencia de embriones (TE)',
+  SIMPLE: 'Simple',
+  TWIN: 'Gemelar',
+  TRIPLET: 'Triple',
+  QUADRUPLET: 'Cuádruple',
+  QUINTUPLET: 'Quíntuple',
+};
+
+function parseJsonSnapshot(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return {};
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+function stableNormalizeValue(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) {
+    return value.map(stableNormalizeValue);
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(obj).sort()) {
+      sorted[key] = stableNormalizeValue(obj[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
+function auditValuesEqual(a: unknown, b: unknown): boolean {
+  return (
+    JSON.stringify(stableNormalizeValue(a)) ===
+    JSON.stringify(stableNormalizeValue(b))
+  );
+}
+
+function formatAuditFieldLabel(key: string): string {
+  if (AUDIT_FIELD_LABELS[key]) return AUDIT_FIELD_LABELS[key];
+  const spaced = key
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : key;
+}
+
+function formatAuditFieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '—';
+    return VALUE_TRANSLATIONS[trimmed.toUpperCase()] ?? trimmed;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+export function computeAuditStateDiff(
+  previousState: Record<string, unknown>,
+  newState: Record<string, unknown>
+): {
+  diffRows: AuditDiffRow[];
+  changedCount: number;
+  isLateCreation: boolean;
+} {
+  const prevKeys = Object.keys(previousState);
+  const newKeys = Object.keys(newState);
+  const isLateCreation = prevKeys.length === 0 && newKeys.length > 0;
+
+  const allKeys = Array.from(new Set([...prevKeys, ...newKeys]));
+  const priorityIndex = new Map<string, number>(
+    PRIORITY_AUDIT_KEYS.map((key, idx) => [key, idx])
+  );
+
+  allKeys.sort((a, b) => {
+    const idxA = priorityIndex.get(a);
+    const idxB = priorityIndex.get(b);
+    if (idxA !== undefined && idxB !== undefined) return idxA - idxB;
+    if (idxA !== undefined) return -1;
+    if (idxB !== undefined) return 1;
+    return a.localeCompare(b, 'es-MX');
+  });
+
+  const diffRows: AuditDiffRow[] = allKeys.map((key) => {
+    const hasPrev = Object.prototype.hasOwnProperty.call(previousState, key);
+    const hasNext = Object.prototype.hasOwnProperty.call(newState, key);
+    const prevVal = hasPrev ? previousState[key] : undefined;
+    const nextVal = hasNext ? newState[key] : undefined;
+    const changed = isLateCreation || hasPrev !== hasNext || !auditValuesEqual(prevVal, nextVal);
+
+    return {
+      key,
+      label: formatAuditFieldLabel(key),
+      previousDisplay: isLateCreation
+        ? 'Sin registro previo'
+        : formatAuditFieldValue(prevVal),
+      newDisplay: formatAuditFieldValue(nextVal),
+      changed,
+    };
+  });
+
+  return {
+    diffRows,
+    changedCount: diffRows.filter((row) => row.changed).length,
+    isLateCreation,
+  };
+}
+
+export function normalizeAuditHistoryEntry(
+  raw: unknown,
+  index: number
+): AuditHistoryEntry | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+
+  const id =
+    asNonEmptyString(obj.id, obj.auditId, obj.audit_id) ?? `audit-${index}`;
+
+  const previousState = parseJsonSnapshot(
+    obj.previousState ?? obj.previous_state ?? obj.estadoAnterior ?? obj.estado_anterior
+  );
+  const newState = parseJsonSnapshot(
+    obj.newState ?? obj.new_state ?? obj.estadoNuevo ?? obj.estado_nuevo
+  );
+
+  const { diffRows, changedCount, isLateCreation } = computeAuditStateDiff(
+    previousState,
+    newState
+  );
+
+  const approverLabel =
+    asNonEmptyString(
+      obj.approvedByUsername,
+      obj.approved_by_username,
+      obj.approverUsername,
+      obj.approver_username,
+      obj.approvedBy,
+      obj.approved_by,
+      obj.aprobadoPorUsuario,
+      obj.aprobado_por_usuario,
+      obj.approvedByUserId,
+      obj.approved_by_user_id,
+      obj.aprobadoPorUsuarioId,
+      obj.aprobado_por_usuario_id
+    ) ?? 'Usuario de asociación';
+
+  const reason =
+    asNonEmptyString(obj.reason, obj.motivo) ?? 'Sin motivo registrado';
+
+  const evidencePhotoS3Key = asNonEmptyString(
+    obj.evidencePhotoS3Key,
+    obj.evidence_photo_s3_key,
+    obj.fotoEvidenciaS3Key,
+    obj.foto_evidencia_s3_key,
+    newState.evidencePhotoS3Key,
+    newState.foto_evidencia_s3_key
+  );
+
+  const evidencePhotoUrl = sanitizeHttpMediaUrl(
+    asNonEmptyString(
+      obj.evidencePhotoUrl,
+      obj.evidence_photo_url,
+      obj.presignedEvidencePhotoUrl,
+      obj.presigned_evidence_photo_url,
+      obj.photoPresignedUrl,
+      obj.photo_presigned_url,
+      obj.presignedPhotoUrl,
+      obj.presigned_photo_url,
+      obj.photoUrl,
+      obj.photo_url
+    )
+  );
+
+  const damLabel = asNonEmptyString(
+    obj.damFolio,
+    obj.dam_folio,
+    obj.madreFolio,
+    obj.madre_folio,
+    obj.damLabel,
+    obj.dam_label,
+    newState.madre_folio,
+    newState.damFolio,
+    previousState.madre_folio,
+    previousState.damFolio
+  );
+
+  const createdAt =
+    asNonEmptyString(obj.createdAt, obj.created_at, obj.creadoEn, obj.creado_en) ??
+    '';
+
+  return {
+    id,
+    birthId: asNonEmptyString(
+      obj.birthId,
+      obj.birth_id,
+      obj.partoId,
+      obj.parto_id
+    ),
+    ranchId: asNonEmptyString(
+      obj.ranchId,
+      obj.ranch_id,
+      obj.ranchoId,
+      obj.rancho_id
+    ),
+    damLabel,
+    approverLabel,
+    reason,
+    evidencePhotoS3Key,
+    evidencePhotoUrl,
+    createdAt,
+    previousState,
+    newState,
+    diffRows,
+    changedCount,
+    isLateCreation,
+  };
+}
+
+export async function fetchAssociationAuditsPage(
+  ranchId: string,
+  page: number,
+  signal?: AbortSignal,
+  requestedSize?: number
+): Promise<{ items: AuditHistoryEntry[]; nextPage?: number; pageSize?: number }> {
+  const path =
+    page > 0 && requestedSize
+      ? `/association/audits?page=${page}&size=${requestedSize}`
+      : '/association/audits';
+
+  const res = await apiFetch<unknown>(path, { ranchId, signal });
+  const { list, totalPages, pageSize } = extractPaginatedList(res, [
+    'audits',
+    'auditorias',
+    'items',
+    'content',
+    'results',
+  ]);
+
+  const items = list
+    .map((item, idx) => normalizeAuditHistoryEntry(item, page * 50 + idx))
+    .filter((item): item is AuditHistoryEntry => item !== null);
+
+  return {
+    items,
+    pageSize: pageSize ?? (list.length > 0 ? list.length : undefined),
+    nextPage: list.length > 0 && page + 1 < totalPages ? page + 1 : undefined,
+  };
+}
+
+export async function fetchPresignedEvidenceDownload(
+  ranchId: string,
+  s3Key: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await apiFetch<unknown>(
+    `/media/presigned-download?s3Key=${encodeURIComponent(s3Key)}`,
+    { ranchId, signal }
+  );
+
+  const obj =
+    res &&
+    typeof res === 'object' &&
+    'data' in (res as Record<string, unknown>) &&
+    (res as Record<string, unknown>).data &&
+    typeof (res as Record<string, unknown>).data === 'object'
+      ? ((res as Record<string, unknown>).data as Record<string, unknown>)
+      : res && typeof res === 'object'
+        ? (res as Record<string, unknown>)
+        : {};
+
+  const rawUrl = asNonEmptyString(
+    obj.downloadUrl,
+    obj.download_url,
+    obj.presignedUrl,
+    obj.presigned_url,
+    obj.url
+  );
+  const safeUrl = sanitizeHttpMediaUrl(rawUrl);
+  if (!safeUrl) {
+    throw new Error(
+      'No se recibió una URL HTTPS válida para visualizar la fotografía en S3.'
+    );
+  }
+  return safeUrl;
 }

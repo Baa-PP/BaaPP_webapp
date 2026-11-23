@@ -2236,3 +2236,230 @@ td small,
     grid-template-columns: 1fr;
   }
 }
+
+/* --- WEB-017: Historial inmutable de auditoría --- */
+.birth-audit-success-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.births-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-strong);
+  padding-bottom: 10px;
+}
+
+.births-tab {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.births-tab:hover {
+  background: var(--surface-support);
+  color: var(--text-primary);
+}
+
+.births-tab-active {
+  background: var(--accent-secondary);
+  border-color: var(--accent-secondary);
+  color: var(--surface-base);
+}
+
+.births-tab-active:hover {
+  background: var(--accent-secondary-hover);
+  border-color: var(--accent-secondary-hover);
+  color: var(--surface-base);
+}
+
+.audit-history-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.audit-history-search-input {
+  min-width: 260px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.audit-history-search-input:focus {
+  border-color: var(--accent-secondary);
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -1px;
+}
+
+.audit-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.audit-history-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.audit-history-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.audit-history-badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-immutable-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.audit-history-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.audit-history-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+}
+
+.audit-meta-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.audit-history-meta-grid code {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.audit-reason-box {
+  padding: 10px 12px;
+  background: #F8FAFC;
+  border-left: 3px solid var(--accent-secondary);
+  border-radius: 4px;
+}
+
+.audit-reason-box p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.audit-diff-table {
+  min-width: 520px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.audit-diff-table tbody th {
+  width: 28%;
+  background: var(--surface-support);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.audit-diff-table tbody td {
+  font-size: 13px;
+  padding: 9px 14px;
+}
+
+.audit-diff-row-changed {
+  background: #FFFBEB;
+}
+
+.audit-diff-prev {
+  color: var(--text-secondary);
+}
+
+.audit-diff-row-changed .audit-diff-prev {
+  color: var(--semantic-warning);
+  text-decoration: line-through;
+}
+
+.audit-diff-row-changed .audit-diff-next {
+  color: var(--semantic-success);
+  font-weight: 700;
+}
+
+.audit-history-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.audit-history-evidence-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.audit-photo-retry {
+  margin-top: 12px;
+}
+
+@media (max-width: 768px) {
+  .audit-history-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-history-search-input {
+    min-width: 0;
+    width: 100%;
+  }
+}

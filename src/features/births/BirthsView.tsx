@@ -4,6 +4,7 @@ import { apiFetch } from '../../api/client';
 import { ModalDialog } from '../../components/ModalDialog';
 import { RanchContextNotice } from '../../components/RanchContextNotice';
 import { RecordedBirthAuditSummary } from './auditApi';
+import { BirthAuditHistory } from './BirthAuditHistory';
 import { BirthAuditModal, BirthAuditMode } from './BirthAuditModal';
 
 export interface BirthRecord {
@@ -398,6 +399,7 @@ export function BirthsView({
     mode: BirthAuditMode;
     birth: BirthRecord | null;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<'births' | 'history'>('births');
   const [lastAuditSummary, setLastAuditSummary] =
     useState<RecordedBirthAuditSummary | null>(null);
 
@@ -406,6 +408,7 @@ export function BirthsView({
   const auditTriggerRef = useRef<HTMLElement | null>(null);
 
   const isAuditRole = AUDIT_ROLES.has(userRole);
+  const effectiveTab = isAuditRole ? activeTab : 'births';
 
   // Recompute age-derived daysElapsed and lock status whenever the local calendar day rolls over
   useEffect(() => {
@@ -634,17 +637,97 @@ export function BirthsView({
               <code>{lastAuditSummary.evidencePhotoS3Key}</code>
             </p>
           </div>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => setLastAuditSummary(null)}
-          >
-            Cerrar aviso
-          </button>
+          <div className="birth-audit-success-actions">
+            {isAuditRole && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setActiveTab('history')}
+              >
+                Ver historial de auditoría
+              </button>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setLastAuditSummary(null)}
+            >
+              Cerrar aviso
+            </button>
+          </div>
         </section>
       )}
 
-      <section className="births-filter-bar" aria-label="Filtros de partos">
+      {isAuditRole && (
+        <div
+          className="births-tabs"
+          role="tablist"
+          aria-label="Secciones de auditoría de nacimientos"
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault();
+            const nextTab = effectiveTab === 'births' ? 'history' : 'births';
+            setActiveTab(nextTab);
+            const nextEl = document.getElementById(
+              nextTab === 'births' ? 'births-tab-list' : 'births-tab-history'
+            );
+            nextEl?.focus();
+          }}
+        >
+          <button
+            id="births-tab-list"
+            type="button"
+            role="tab"
+            tabIndex={effectiveTab === 'births' ? 0 : -1}
+            className={
+              effectiveTab === 'births'
+                ? 'births-tab births-tab-active'
+                : 'births-tab'
+            }
+            aria-selected={effectiveTab === 'births'}
+            aria-controls="births-panel-list"
+            onClick={() => setActiveTab('births')}
+          >
+            Partos registrados
+          </button>
+          <button
+            id="births-tab-history"
+            type="button"
+            role="tab"
+            tabIndex={effectiveTab === 'history' ? 0 : -1}
+            className={
+              effectiveTab === 'history'
+                ? 'births-tab births-tab-active'
+                : 'births-tab'
+            }
+            aria-selected={effectiveTab === 'history'}
+            aria-controls="births-panel-history"
+            onClick={() => setActiveTab('history')}
+          >
+            Historial de auditoría (inmutable)
+          </button>
+        </div>
+      )}
+
+      {effectiveTab === 'history' ? (
+        <div
+          id="births-panel-history"
+          role="tabpanel"
+          aria-labelledby="births-tab-history"
+        >
+          <BirthAuditHistory
+            username={username}
+            activeRanchId={activeRanchId}
+            ranchName={ranchName}
+          />
+        </div>
+      ) : (
+        <div
+          id="births-panel-list"
+          role={isAuditRole ? 'tabpanel' : undefined}
+          aria-labelledby={isAuditRole ? 'births-tab-list' : undefined}
+        >
+          <section className="births-filter-bar" aria-label="Filtros de partos">
         <div className="births-filter-controls">
           <label className="births-filter-label" htmlFor="births-month-filter">
             Mes de parto
@@ -851,6 +934,8 @@ export function BirthsView({
             </table>
           </div>
         </section>
+      )}
+        </div>
       )}
 
       <ModalDialog
