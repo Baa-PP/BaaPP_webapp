@@ -23,6 +23,11 @@ const GrowthAnalyticsView = lazy(() =>
     default: mod.GrowthAnalyticsView,
   }))
 );
+const PendingWeaningsView = lazy(() =>
+  import('./features/analytics/PendingWeaningsView').then((mod) => ({
+    default: mod.PendingWeaningsView,
+  }))
+);
 const UnproductiveFemalesView = lazy(() =>
   import('./features/analytics/UnproductiveFemalesView').then((mod) => ({
     default: mod.UnproductiveFemalesView,
@@ -188,7 +193,7 @@ function PortalApp(){
       location.hash=defaultRoute(s);
       return;
     }
-    if((url==='indicadores'||url==='mortalidad-destete'||url==='crecimiento'||url==='vientres-improductivos')&&!canAnalytics(s)){
+    if((url==='indicadores'||url==='mortalidad-destete'||url==='crecimiento'||url==='destetes-pendientes'||url==='vientres-improductivos')&&!canAnalytics(s)){
       location.hash=defaultRoute(s);
       return;
     }
@@ -201,7 +206,7 @@ function PortalApp(){
       return;
     }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='indicadores'||url==='mortalidad-destete'||url==='crecimiento'||url==='vientres-improductivos'||url==='rancho'||url==='cuentas-rama';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='indicadores'||url==='mortalidad-destete'||url==='crecimiento'||url==='destetes-pendientes'||url==='vientres-improductivos'||url==='rancho'||url==='cuentas-rama';
     if(!isKnown){
       location.hash=defaultRoute(s);
       return;
@@ -217,7 +222,7 @@ function PortalApp(){
   const canViewAnalytics=Boolean(s&&canAnalytics(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','indicadores','mortalidad-destete','crecimiento','vientres-improductivos','rancho','cuentas-rama'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','indicadores','mortalidad-destete','crecimiento','destetes-pendientes','vientres-improductivos','rancho','cuentas-rama'].includes(url));
 
   // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
@@ -271,6 +276,7 @@ function PortalApp(){
       sessionStorage.setItem(KEY,JSON.stringify(nextSession));
     }
     qc.invalidateQueries({queryKey:['ranches']});
+    qc.invalidateQueries({queryKey:['analytics']});
   }
 
   async function login(e:FormEvent){
@@ -396,7 +402,7 @@ function PortalApp(){
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
   const ranchesError=ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):'';
   const retryRanches=()=>{void ranchesQuery.refetch()};
-  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='mortalidad-destete'&&canViewAnalytics?'Mortalidad y destete':url==='crecimiento'&&canViewAnalytics?'Crecimiento y ranking GDP':url==='vientres-improductivos'&&canViewAnalytics?'Vientres improductivos (CULL / SELL)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='mortalidad-destete'&&canViewAnalytics?'Mortalidad y destete':url==='crecimiento'&&canViewAnalytics?'Crecimiento y ranking GDP':url==='destetes-pendientes'&&canViewAnalytics?'Tablero de destetes pendientes':url==='vientres-improductivos'&&canViewAnalytics?'Vientres improductivos (CULL / SELL)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -422,6 +428,9 @@ function PortalApp(){
               </a>
               <a className={url==='crecimiento'?'nav-link active':'nav-link'} href="#/crecimiento">
                 Crecimiento y GDP
+              </a>
+              <a className={url==='destetes-pendientes'?'nav-link active':'nav-link'} href="#/destetes-pendientes">
+                Destetes pendientes
               </a>
               <a className={url==='vientres-improductivos'?'nav-link active':'nav-link'} href="#/vientres-improductivos">
                 Vientres improductivos
@@ -578,6 +587,27 @@ function PortalApp(){
                 ranchesError={ranchesError}
                 onRetryRanches={retryRanches}
                 canOpenAnimalDetail={canInventory(s)}
+              />
+            </Suspense>
+          ):url==='destetes-pendientes'&&canViewAnalytics?(
+            <Suspense
+              fallback={
+                <section className="empty-panel" role="status" aria-live="polite">
+                  <p className="muted">Cargando tablero de destetes pendientes…</p>
+                </section>
+              }
+            >
+              <PendingWeaningsView
+                username={s.username}
+                multiRanch={multi}
+                activeRanchId={activeRanchId}
+                ranchName={selectedRanch?.name}
+                ranchWeaningTargetDays={selectedRanch?.weaning_days_target}
+                ranchesLoading={ranchesQuery.isFetching}
+                ranchesError={ranchesError}
+                onRetryRanches={retryRanches}
+                canOpenAnimalDetail={canInventory(s)}
+                canEditRanch={canEdit}
               />
             </Suspense>
           ):url==='vientres-improductivos'&&canViewAnalytics?(
