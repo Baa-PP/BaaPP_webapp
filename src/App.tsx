@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { apiFetch, clearSession, getSessionGeneration, onForbiddenError, onSessionCleared, onSessionRefreshed, postAuthEndpoint, type ApiError, type ForbiddenEvent } from './api/client';
 import { API_CONFIG_ERROR, API_IS_HTTPS } from './api/config';
 import { RanchContextNotice } from './components/RanchContextNotice';
+import { BirthsView } from './features/births/BirthsView';
 import { AnimalCertificate, normalizeAnimalDetail } from './features/inventory/AnimalCertificate';
 import { InventoryView } from './features/inventory/InventoryView';
 import { RanchProfileForm } from './features/ranch/RanchProfileForm';
@@ -19,6 +20,7 @@ const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const canEditRanch=(s:Session)=>RANCH_EDIT_ROLES.includes(s.role);
 const canManageWorkers=(s:Session)=>s.role==='OWNER';
+const canViewBirths=(s:Session)=>AUDIT.includes(s.role)||s.role==='OWNER';
 
 function normalizeRanches(p:any):Ranch[]{
   const d=data(p);
@@ -169,6 +171,10 @@ function PortalApp(){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
     }
+    if(url==='partos'&&!canViewBirths(s)){
+      location.hash=canInventory(s)?'/inventario':'/sin-permisos';
+      return;
+    }
     if(url==='rancho'&&!canEditRanch(s)){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
@@ -178,7 +184,7 @@ function PortalApp(){
       return;
     }
     const isInventario=url==='inventario'||url.startsWith('inventario/');
-    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='rancho'||url==='cuentas-rama';
+    const isKnown=isInventario||url==='sin-permisos'||url==='auditoria-nacimientos'||url==='partos'||url==='rancho'||url==='cuentas-rama';
     if(!isKnown){
       location.hash=canInventory(s)?'/inventario':'/sin-permisos';
       return;
@@ -193,7 +199,8 @@ function PortalApp(){
   const canWorkers=Boolean(s&&canManageWorkers(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
-  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','rancho','cuentas-rama'].includes(url));
+  const isInventoryRoute=Boolean(s&&canInventory(s)&&!['login','sin-permisos','auditoria-nacimientos','partos','rancho','cuentas-rama'].includes(url));
+  const isBirthsRoute=Boolean(s&&((url==='auditoria-nacimientos'&&AUDIT.includes(s.role))||(url==='partos'&&canViewBirths(s))));
 
   // WEB-005 / WEB-006: Load accessible ranch(es) from GET /api/v1/ranches (BE-004), independent of active ranch
   const ranchesQuery=useQuery({
@@ -373,7 +380,7 @@ function PortalApp(){
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
   const ranchesError=ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):'';
   const retryRanches=()=>{void ranchesQuery.refetch()};
-  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='auditoria-nacimientos'?'Bandeja de auditoría de nacimientos':detail?'Reseña individual del ejemplar':'Inventario del rebaño';
+  const pageTitle=!show||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':isBirthsRoute?(multi?'Bandeja de auditoría de nacimientos':'Partos del rancho'):detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
@@ -400,8 +407,13 @@ function PortalApp(){
             </a>
           )}
           {AUDIT.includes(s.role)&&(
-            <a className={url==='auditoria-nacimientos'?'nav-link active':'nav-link'} href="#/auditoria-nacimientos">
+            <a className={url==='auditoria-nacimientos'||url==='partos'?'nav-link active':'nav-link'} href="#/auditoria-nacimientos">
               Bandeja de auditoría
+            </a>
+          )}
+          {s.role==='OWNER'&&(
+            <a className={url==='partos'?'nav-link active':'nav-link'} href="#/partos">
+              Partos del rancho
             </a>
           )}
         </nav>
@@ -547,16 +559,17 @@ function PortalApp(){
               ranchError={ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudo cargar la información del rancho.'):''}
               onRetryRanch={()=>{void ranchesQuery.refetch()}}
             />
-          ):url==='auditoria-nacimientos'?(
-            <section className="empty-panel">
-              <p className="eyebrow">Acceso por rol</p>
-              <h1>Bandeja de auditoría de nacimientos</h1>
-              <p className="intro">
-                {selectedRanch
-                  ?`Contexto activo: ${selectedRanch.name}. La consulta y corrección auditada se habilitará en el módulo correspondiente.`
-                  :'Tu rol tiene acceso autorizado a esta sección. La consulta y corrección auditada se habilitará en el módulo correspondiente.'}
-              </p>
-            </section>
+          ):isBirthsRoute?(
+            <BirthsView
+              username={s.username}
+              userRole={s.role}
+              multiRanch={multi}
+              activeRanchId={activeRanchId}
+              ranchName={selectedRanch?.name}
+              ranchesLoading={ranchesQuery.isFetching}
+              ranchesError={ranchesError}
+              onRetryRanches={retryRanches}
+            />
           ):detail?(
             <>
               <a className="back-button" href="#/inventario">
