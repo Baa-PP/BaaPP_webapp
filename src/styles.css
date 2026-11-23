@@ -2178,6 +2178,48 @@ td small,
   color: var(--semantic-danger);
 }
 
+/* --- WEB-024: Tablero de destetes pendientes --- */
+.analytics-weaning-overdue {
+  border-color: #FECACA;
+}
+
+.analytics-weaning-upcoming {
+  border-color: var(--border-strong);
+}
+
+.analytics-weaning-head {
+  flex-wrap: wrap;
+}
+
+.analytics-weaning-title-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.analytics-weaning-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-weaning-empty {
+  padding: 18px 20px;
+}
+
+.analytics-weaning-empty strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.analytics-weaning-empty p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 @media (max-width: 1000px) {
   .analytics-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

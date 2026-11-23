@@ -173,6 +173,34 @@ export interface UnproductiveFemalesSummary {
   infertilityAlertCount: number;
 }
 
+export const DEFAULT_WEANING_TARGET_DAYS = 75;
+
+export interface PendingWeaningRecord {
+  key: string;
+  animalId: string | null;
+  folioInterno: string;
+  ageDays: number | null;
+  weaningTargetDays: number;
+  hasExplicitTargetDays: boolean;
+  daysToWeaning: number | null;
+  overdue: boolean;
+  sex: 'FEMALE' | 'MALE' | null;
+  birthDate: string | null;
+  motherFolio: string | null;
+  lastWeightKg: number | null;
+}
+
+export interface PendingWeaningsSummary {
+  items: PendingWeaningRecord[];
+  overdueItems: PendingWeaningRecord[];
+  upcomingItems: PendingWeaningRecord[];
+  ranchWeaningTargetDays: number;
+  overdueCount: number;
+  upcomingCount: number;
+  dueSoonCount: number;
+  hasData: boolean;
+}
+
 export interface ReproductiveOverview {
   seasons: SeasonReproductionMetric[];
   overallPregnancyPct: number | null;
@@ -185,6 +213,7 @@ export interface ReproductiveOverview {
   prolificityRatio: RatioAggregate | null;
   mortalityWeaning: MortalityWeaningSummary;
   growth: GrowthOverviewSummary;
+  pendingWeanings: PendingWeaningsSummary;
   unproductive: UnproductiveFemalesSummary;
 }
 
@@ -1848,8 +1877,274 @@ export function buildMortalityWeaningSummary(
   };
 }
 
+function partitionPendingWeanings(
+  items: PendingWeaningRecord[],
+  ranchWeaningTargetDays: number,
+  explicitOverdueCount: number | null
+): PendingWeaningsSummary {
+  const overdueItems = items
+    .filter((item) => item.overdue)
+    .sort((a, b) => {
+      const daysDiff = (a.daysToWeaning ?? 0) - (b.daysToWeaning ?? 0);
+      if (daysDiff !== 0) return daysDiff;
+      const ageDiff = (b.ageDays ?? -1) - (a.ageDays ?? -1);
+      if (ageDiff !== 0) return ageDiff;
+      return a.folioInterno.localeCompare(b.folioInterno, 'es-MX', {
+        numeric: true,
+      });
+    });
+
+  const upcomingItems = items
+    .filter((item) => !item.overdue)
+    .sort((a, b) => {
+      const daysDiff =
+        (a.daysToWeaning ?? Number.POSITIVE_INFINITY) -
+        (b.daysToWeaning ?? Number.POSITIVE_INFINITY);
+      if (daysDiff !== 0) return daysDiff;
+      const ageDiff = (b.ageDays ?? -1) - (a.ageDays ?? -1);
+      if (ageDiff !== 0) return ageDiff;
+      return a.folioInterno.localeCompare(b.folioInterno, 'es-MX', {
+        numeric: true,
+      });
+    });
+
+  const overdueCount =
+    items.length > 0 ? overdueItems.length : (explicitOverdueCount ?? 0);
+  const upcomingCount = upcomingItems.length;
+  const dueSoonCount = upcomingItems.filter(
+    (item) => item.daysToWeaning !== null && item.daysToWeaning <= 15
+  ).length;
+
+  return {
+    items: [...overdueItems, ...upcomingItems],
+    overdueItems,
+    upcomingItems,
+    ranchWeaningTargetDays,
+    overdueCount,
+    upcomingCount,
+    dueSoonCount,
+    hasData: items.length > 0 || (explicitOverdueCount ?? 0) > 0,
+  };
+}
+
+export function resolvePendingWeaningsSummary(
+  summary: PendingWeaningsSummary,
+  configuredRanchTargetDays?: number | null
+): PendingWeaningsSummary {
+  const validConfigured =
+    typeof configuredRanchTargetDays === 'number' &&
+    Number.isFinite(configuredRanchTargetDays) &&
+    configuredRanchTargetDays > 0
+      ? Math.trunc(configuredRanchTargetDays)
+      : null;
+  if (validConfigured === null) return summary;
+
+  const updatedItems = summary.items.map((item) => {
+    if (item.hasExplicitTargetDays) return item;
+    const targetDays = validConfigured;
+    const daysToWeaning =
+      item.ageDays !== null ? targetDays - item.ageDays : item.daysToWeaning;
+    const overdue =
+      item.ageDays !== null ? item.ageDays > targetDays : item.overdue;
+    return {
+      ...item,
+      weaningTargetDays: targetDays,
+      daysToWeaning,
+      overdue,
+    };
+  });
+
+  const firstExplicitTarget = summary.items.find(
+    (item) => item.hasExplicitTargetDays
+  )?.weaningTargetDays;
+
+  return partitionPendingWeanings(
+    updatedItems,
+    firstExplicitTarget ?? validConfigured,
+    summary.items.length === 0 ? summary.overdueCount : null
+  );
+}
+
+export function buildPendingWeaningsSummary(
+  rootObj: Record<string, unknown> | null,
+  configuredRanchTargetDays?: number | null
+): PendingWeaningsSummary {
+  const validConfiguredTarget =
+    typeof configuredRanchTargetDays === 'number' &&
+    Number.isFinite(configuredRanchTargetDays) &&
+    configuredRanchTargetDays > 0
+      ? Math.trunc(configuredRanchTargetDays)
+      : null;
+
+  const explicitRootTarget = rootObj
+    ? toOptionalNonNegativeCount(
+        rootObj.weaningTargetDays,
+        rootObj.weaning_target_days,
+        rootObj.diasMetaDestete,
+        rootObj.dias_meta_destete,
+        rootObj.targetWeaningDays
+      )
+    : null;
+
+  const defaultTargetDays =
+    explicitRootTarget ?? validConfiguredTarget ?? DEFAULT_WEANING_TARGET_DAYS;
+
+  const rawWeanings = rootObj
+    ? (rootObj.pendingWeanings ??
+        rootObj.pending_weanings ??
+        rootObj.destetesPendientes ??
+        rootObj.destetes_pendientes ??
+        rootObj.weanings ??
+        rootObj.weaningQueue)
+    : undefined;
+
+  const items: PendingWeaningRecord[] = [];
+  let inferredTargetDays: number | null = null;
+
+  if (Array.isArray(rawWeanings)) {
+    for (let idx = 0; idx < rawWeanings.length; idx++) {
+      const raw = rawWeanings[idx];
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const obj = raw as Record<string, unknown>;
+
+      const animalId =
+        toNonEmptyString(
+          obj.animalId,
+          obj.animal_id,
+          obj.lambId,
+          obj.lamb_id,
+          obj.id
+        ) ?? null;
+      const rawFolio = toNonEmptyString(
+        obj.folioInterno,
+        obj.folio_interno,
+        obj.folio,
+        obj.arete
+      );
+      const ageDays = toOptionalNonNegativeCount(
+        obj.ageDays,
+        obj.age_days,
+        obj.edadDias,
+        obj.edad_dias
+      );
+      const explicitItemTarget = toOptionalNonNegativeCount(
+        obj.weaningTargetDays,
+        obj.weaning_target_days,
+        obj.diasMetaDestete,
+        obj.dias_meta_destete,
+        obj.targetDays,
+        obj.target_days
+      );
+      const rawDaysLeft = toOptionalFiniteNumber(
+        obj.daysToWeaning,
+        obj.days_to_weaning,
+        obj.diasFaltan,
+        obj.dias_faltan,
+        obj.daysLeft,
+        obj.days_left
+      );
+      const explicitDaysLeft =
+        rawDaysLeft !== null ? Math.trunc(rawDaysLeft) : null;
+      const explicitOverdue = toOptionalBoolean(
+        obj.overdue,
+        obj.vencido,
+        obj.isOverdue,
+        obj.is_overdue
+      );
+
+      if (
+        !animalId &&
+        !rawFolio &&
+        ageDays === null &&
+        explicitDaysLeft === null &&
+        explicitOverdue === null
+      ) {
+        continue;
+      }
+
+      const folioInterno =
+        rawFolio ??
+        (animalId ? `ID ${animalId.slice(0, 8)}` : `Cordero #${idx + 1}`);
+
+      const hasExplicitTargetDays =
+        explicitItemTarget !== null && explicitItemTarget > 0;
+      const weaningTargetDays = hasExplicitTargetDays
+        ? explicitItemTarget
+        : defaultTargetDays;
+      if (hasExplicitTargetDays && inferredTargetDays === null) {
+        inferredTargetDays = explicitItemTarget;
+      }
+
+      const daysToWeaning =
+        explicitDaysLeft ??
+        (ageDays !== null ? weaningTargetDays - ageDays : null);
+
+      const overdue =
+        explicitOverdue ??
+        (ageDays !== null
+          ? ageDays > weaningTargetDays
+          : daysToWeaning !== null
+            ? daysToWeaning < 0
+            : false);
+
+      items.push({
+        key: animalId ? `${animalId}-${idx}` : `${folioInterno}-${idx}`,
+        animalId,
+        folioInterno,
+        ageDays,
+        weaningTargetDays,
+        hasExplicitTargetDays,
+        daysToWeaning,
+        overdue,
+        sex: normalizeStageSex(obj.sex ?? obj.sexo),
+        birthDate:
+          toNonEmptyString(
+            obj.birthDate,
+            obj.birth_date,
+            obj.fechaNacimiento,
+            obj.fecha_nacimiento
+          ) ?? null,
+        motherFolio:
+          toNonEmptyString(
+            obj.motherFolio,
+            obj.mother_folio,
+            obj.damFolio,
+            obj.dam_folio,
+            obj.madreFolio,
+            obj.madre_folio,
+            obj.madre
+          ) ?? null,
+        lastWeightKg: toOptionalFiniteNumber(
+          obj.lastWeightKg,
+          obj.last_weight_kg,
+          obj.weightKg,
+          obj.weight_kg,
+          obj.ultimoPesoKg,
+          obj.ultimo_peso_kg
+        ),
+      });
+    }
+  }
+
+  const explicitOverdueCount = rootObj
+    ? toOptionalNonNegativeCount(
+        rootObj.overdueWeanings,
+        rootObj.overdue_weanings,
+        rootObj.destetesVencidos,
+        rootObj.destetes_vencidos
+      )
+    : null;
+
+  return partitionPendingWeanings(
+    items,
+    inferredTargetDays ?? defaultTargetDays,
+    explicitOverdueCount
+  );
+}
+
 export function normalizeReproductiveOverview(
-  payload: unknown
+  payload: unknown,
+  ranchWeaningTargetDays?: number | null
 ): ReproductiveOverview {
   const root = unwrapAnalyticsRoot(payload);
   const rootObj =
@@ -1958,6 +2253,10 @@ export function normalizeReproductiveOverview(
     extractedStages
   );
   const growth = buildGrowthOverviewSummary(rootObj, extractedStages);
+  const pendingWeanings = buildPendingWeaningsSummary(
+    rootObj,
+    ranchWeaningTargetDays
+  );
 
   return {
     seasons,
@@ -1971,6 +2270,7 @@ export function normalizeReproductiveOverview(
     prolificityRatio: prolificityAgg.ratio,
     mortalityWeaning,
     growth,
+    pendingWeanings,
     unproductive: normalizeUnproductiveFemalesOverview(payload),
   };
 }

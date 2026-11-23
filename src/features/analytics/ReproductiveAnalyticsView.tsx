@@ -282,6 +282,7 @@ export function ReproductiveAnalyticsView({
   const seasons = overview?.seasons ?? [];
   const unproductive = overview?.unproductive;
   const unproductiveAlertCount = unproductive?.alertItems.length ?? 0;
+  const overdueWeaningsCount = overview?.pendingWeanings.overdueCount ?? 0;
 
   const pregnancyOption = useMemo(
     () => buildPregnancyOption(seasons),
@@ -386,6 +387,30 @@ export function ReproductiveAnalyticsView({
           </div>
           <a className="secondary-button" href="#/vientres-improductivos">
             Abrir tablero CULL / SELL
+          </a>
+        </section>
+      )}
+
+      {!errorMessage && !overviewQuery.isLoading && overview && overdueWeaningsCount > 0 && (
+        <section
+          className="analytics-alert-banner"
+          role="region"
+          aria-label="Resumen de destetes vencidos"
+        >
+          <div className="analytics-alert-banner-copy">
+            <strong>
+              {overdueWeaningsCount}{' '}
+              {overdueWeaningsCount === 1
+                ? 'destete vencido'
+                : 'destetes vencidos'}
+            </strong>
+            <p>
+              Superaron la meta de {overview.pendingWeanings.ranchWeaningTargetDays}{' '}
+              días del rancho sin destete confirmado.
+            </p>
+          </div>
+          <a className="secondary-button" href="#/destetes-pendientes">
+            Ver destetes pendientes
           </a>
         </section>
       )}
