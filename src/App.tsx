@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch, clearSession, getSessionGeneration, onSessionCleared, onSessionRefreshed } from './api/client';
-import { API_BASE_URL } from './api/config';
+import { apiFetch, clearSession, getSessionGeneration, onForbiddenError, onSessionCleared, onSessionRefreshed, type ApiError, type ForbiddenEvent } from './api/client';
+import { API_BASE_URL, API_CONFIG_ERROR, API_IS_HTTPS } from './api/config';
 import { RanchContextNotice } from './components/RanchContextNotice';
 import { InventoryView } from './features/inventory/InventoryView';
 import { RanchProfileForm } from './features/ranch/RanchProfileForm';
@@ -89,7 +89,11 @@ function mergeLatestTokens(base:Session,ranchId:string|undefined):Session{
 const queryClient=new QueryClient({
   defaultOptions:{
     queries:{
-      retry:1,
+      retry:(failureCount,error)=>{
+        const status=(error as Partial<ApiError>|null)?.status;
+        if(status===400||status===401||status===403||status===404)return false;
+        return failureCount<1;
+      },
       refetchOnWindowFocus:false,
     },
   },
@@ -106,7 +110,7 @@ export default function App(){
 function PortalApp(){
   const qc=useQueryClient();
   const {activeRanchId,availableRanches,setActiveRanchId,setAvailableRanches}=useRanchContextStore();
-  const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false);
+  const [s,setS]=useState<Session|null>(read),[url,setUrl]=useState(route),[user,setUser]=useState(''),[pass,setPass]=useState(''),[showPassword,setShowPassword]=useState(false),[loginErr,setLoginErr]=useState(''),[busy,setBusy]=useState(false),[forbiddenAlert,setForbiddenAlert]=useState<ForbiddenEvent|null>(null);
 
   useEffect(()=>{const u=()=>setUrl(route());addEventListener('hashchange',u);return()=>removeEventListener('hashchange',u)},[]);
 
@@ -136,7 +140,7 @@ function PortalApp(){
     sessionStorage.setItem(KEY,JSON.stringify(updated));
   },[activeRanchId,s]);
 
-  // Keep React state synchronized when WEB-002 apiFetch refreshes or expires the session
+  // Keep React state synchronized when WEB-002 apiFetch refreshes/expires the session or BE-002 rejects 403
   useEffect(()=>{
     const unsubCleared=onSessionCleared(()=>{
       setAvailableRanches([]);
@@ -144,12 +148,16 @@ function PortalApp(){
       setS(null);
       setPass('');
       setShowPassword(false);
+      setForbiddenAlert(null);
       if(location.hash!=='#/login')location.hash='/login';
     });
     const unsubRefreshed=onSessionRefreshed(({accessToken,refreshToken})=>{
       setS(prev=>prev?{...prev,accessToken,refreshToken:refreshToken??prev.refreshToken}:null);
     });
-    return()=>{unsubCleared();unsubRefreshed()};
+    const unsubForbidden=onForbiddenError((event)=>{
+      setForbiddenAlert(event);
+    });
+    return()=>{unsubCleared();unsubRefreshed();unsubForbidden()};
   },[qc,setAvailableRanches]);
   // Route guard (WEB-004)
   useEffect(()=>{
@@ -219,6 +227,7 @@ function PortalApp(){
 
   function handleRanchChange(ranchId:string){
     const nextId=ranchId||null;
+    setForbiddenAlert(null);
     setActiveRanchId(nextId);
     if(s){
       const updated=mergeLatestTokens(s,nextId??undefined);
@@ -249,6 +258,7 @@ function PortalApp(){
     e.preventDefault();setBusy(true);setLoginErr('');
     const startGen=getSessionGeneration();
     try{
+      if(API_CONFIG_ERROR)throw Error(API_CONFIG_ERROR);
       const r=await fetch(`${API_BASE_URL}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({username:user.trim(),password:pass})}),p=await payload(r);
       if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
       const d=data(p),t=token(p),u=d.user||{};
@@ -279,6 +289,7 @@ function PortalApp(){
   }
 
   function logout(){
+    setForbiddenAlert(null);
     clearSession();
     location.hash='/login';
   }
@@ -337,19 +348,19 @@ function PortalApp(){
                   </button>
                 </div>
               </div>
-              {loginErr&&(
+              {(API_CONFIG_ERROR||loginErr)&&(
                 <p className="error" role="alert">
-                  {loginErr}
+                  {API_CONFIG_ERROR||loginErr}
                 </p>
               )}
-              <button className="primary wide" type="submit" disabled={busy}>
+              <button className="primary wide" type="submit" disabled={busy||Boolean(API_CONFIG_ERROR)}>
                 {busy?'Validando credenciales…':'Entrar al portal'}
               </button>
             </div>
             <div className="login-card-footer">
-              <span className="security-status">
-                <span className="security-dot" aria-hidden="true" />
-                Acceso seguro HTTPS
+              <span className={API_CONFIG_ERROR?'security-status warning':'security-status'}>
+                <span className={API_CONFIG_ERROR?'security-dot warning':'security-dot'} aria-hidden="true" />
+                {API_CONFIG_ERROR?'Conexión bloqueada (HTTPS requerido)':API_IS_HTTPS?'Acceso seguro HTTPS':'Entorno local HTTP (localhost)'}
               </span>
               <span>AGLOT · Pelifolk · SADER</span>
             </div>
@@ -474,6 +485,51 @@ function PortalApp(){
           </div>
         </header>
         <main className="content">
+          {API_CONFIG_ERROR&&(
+            <div className="security-alert" role="alert">
+              <div className="security-alert-body">
+                <strong>Configuración de transporte insegura</strong>
+                <p>{API_CONFIG_ERROR}</p>
+              </div>
+            </div>
+          )}
+          {forbiddenAlert&&(
+            <div className="security-alert" role="alert">
+              <div className="security-alert-body">
+                <div className="security-alert-head">
+                  <strong>Acceso denegado (403)</strong>
+                  {forbiddenAlert.code&&<span className="security-code">{forbiddenAlert.code}</span>}
+                </div>
+                <p>{forbiddenAlert.message}</p>
+                {forbiddenAlert.ranchId&&(
+                  <small className="security-alert-meta">
+                    Recurso: <code>{forbiddenAlert.path}</code> · Rancho solicitado: <code>{forbiddenAlert.ranchId}</code>
+                  </small>
+                )}
+              </div>
+              <div className="security-alert-actions">
+                {availableRanches.some(r=>r.id!==forbiddenAlert.ranchId)&&(
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={()=>{
+                      const fallback=availableRanches.find(r=>r.id!==forbiddenAlert.ranchId);
+                      if(fallback)handleRanchChange(fallback.id);
+                    }}
+                  >
+                    Volver a mi rancho
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={()=>setForbiddenAlert(null)}
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          )}
           {!show||url==='sin-permisos'?(
             <section className="empty-panel">
               <p className="eyebrow">Control de acceso</p>
