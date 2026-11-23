@@ -947,6 +947,17 @@ td small,
   --deep: #1E40AF;
 }
 
+.neutral {
+  --tone: #334155;
+  --tint: #F1F5F9;
+  --line: #CBD5E1;
+  --deep: #0F172A;
+}
+
+.detail-error-panel {
+  max-width: 720px;
+}
+
 .cert-head {
   display: flex;
   justify-content: space-between;
@@ -996,16 +1007,67 @@ td small,
 
 .life-alert {
   display: grid;
-  gap: 4px;
-  padding: 12px 24px;
+  gap: 10px;
+  padding: 16px 24px;
   background: var(--semantic-danger-bg);
   color: var(--semantic-danger);
   font-size: 13px;
+  border-left: 4px solid var(--semantic-danger);
   border-bottom: 1px solid var(--semantic-danger);
 }
 
-.life-alert span {
-  font-size: 12px;
+.life-alert.sold {
+  background: #FFFBEB;
+  color: var(--semantic-warning);
+  border-left-color: var(--semantic-warning);
+  border-bottom-color: var(--semantic-warning);
+}
+
+.life-alert-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.baja-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  background: var(--surface-base);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.baja-note {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.baja-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.baja-grid dt {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.baja-grid dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
 .cert-body {
@@ -1015,9 +1077,16 @@ td small,
   padding: 22px 24px;
 }
 
+.photo-frame {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .photo {
   position: relative;
-  min-height: 200px;
+  min-height: 220px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -1035,14 +1104,37 @@ td small,
   object-fit: cover;
 }
 
-.photo > span {
+.photo-placeholder {
   display: grid;
   justify-items: center;
-  font-size: 26px;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+}
+
+.photo-placeholder > span {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.photo-placeholder-error {
+  color: var(--semantic-danger);
+}
+
+.photo-retry-btn {
+  margin-top: 2px;
 }
 
 .photo small {
   font-size: 11px;
+  line-height: 1.4;
+}
+
+.photo-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .section-label {
@@ -1056,38 +1148,116 @@ td small,
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px 12px;
-  margin-top: 12px;
+  margin: 12px 0 0;
 }
 
 .id-grid small,
+.id-grid dt,
 .owners small {
   display: block;
-  margin-bottom: 3px;
+  margin: 0 0 3px;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
 }
 
 .id-grid b,
+.id-grid dd,
 .owners b {
+  margin: 0;
   font-size: 13px;
+  font-weight: 700;
   color: var(--text-primary);
   overflow-wrap: anywhere;
+}
+
+.ownership-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ownership-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.origin-diff-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-control);
+  background: #FEF3C7;
+  border: 1px solid #F59E0B;
+  color: #92400E;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .owners {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-top: 16px;
-  padding: 12px 14px;
-  border-radius: var(--radius-control);
-  background: var(--tint);
-  border: 1px solid var(--line);
 }
 
-.owners small {
+.owner-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+}
+
+.owner-box-breeder {
+  background: var(--surface-support);
+  border-color: var(--border-strong);
+}
+
+.owner-box-current {
+  background: var(--tint);
+  border-color: var(--line);
+}
+
+.owner-box-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.owner-box small {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.owner-box-current small {
   color: var(--deep);
+}
+
+.owner-role-tag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.owner-role-tag.current {
+  border-color: var(--tone);
+  color: var(--deep);
+}
+
+.owner-box-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .genealogy-block {
@@ -1619,6 +1789,125 @@ td small,
   cursor: not-allowed;
 }
 
+/* --- Weights, GDP ECharts & History Table (WEB-011 / RF-WEB-04) --- */
+.weights-sync-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: #FFFBEB;
+  border: 1px solid var(--semantic-warning);
+  border-left-width: 4px;
+  border-radius: var(--radius-control);
+  color: var(--semantic-warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.weight-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.weight-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-support);
+}
+
+.weight-kpi small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.weight-kpi b {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.weight-kpi span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.weight-kpi-scrotal {
+  background: var(--tint);
+  border-color: var(--line);
+}
+
+.weight-kpi-scrotal small,
+.weight-kpi-scrotal b {
+  color: var(--deep);
+}
+
+.gdp-chart-wrap {
+  width: 100%;
+  padding: 14px 12px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+}
+
+.gdp-chart-canvas {
+  width: 100%;
+  height: 260px;
+}
+
+.gdp-hint {
+  margin: 10px 0 0;
+}
+
+.weights-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+}
+
+.weights-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.weights-table th {
+  padding: 10px 12px;
+}
+
+.weights-table td {
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.gdp-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gdp-cell b {
+  color: var(--brand-primary);
+}
+
+.gdp-cell small {
+  margin-top: 0;
+}
+
 @media (max-width: 1000px) {
   .facets {
     grid-template-columns: repeat(3, 1fr);
@@ -1733,5 +2022,13 @@ td small,
 
   .pagination-actions {
     justify-content: space-between;
+  }
+
+  .baja-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gdp-chart-canvas {
+    height: 220px;
   }
 }
