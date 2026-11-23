@@ -31,6 +31,69 @@ export interface StageWeightAverage {
   stageLabel: string;
   averageWeightKg: number;
   sampleCount: number;
+  femalesAvgKg: number | null;
+  femalesCount: number;
+  malesAvgKg: number | null;
+  malesCount: number;
+}
+
+export interface StageWeightPointRecord {
+  key: string;
+  animalId: string | null;
+  folioInterno: string | null;
+  sex: 'FEMALE' | 'MALE' | null;
+  stageKey: StageWeightAverage['stageKey'];
+  stageLabel: string;
+  date: string | null;
+  weightKg: number;
+  ranchAverageKg: number | null;
+  differenceKg: number | null;
+  scrotalCircumferenceCm: number | null;
+}
+
+export const SLOW_GROWTH_GDP_THRESHOLD_G = 130;
+export const DEFAULT_SALE_WEIGHT_TARGET_KG = 35;
+
+export type GrowthDestinationSuggestion = 'SELL' | 'BREEDING' | 'FATTENING';
+
+export interface GrowthRankEntryRecord {
+  key: string;
+  animalId: string | null;
+  folioInterno: string;
+  sex: 'FEMALE' | 'MALE' | null;
+  ageDays: number | null;
+  dailyGainGrams: number | null;
+  ranchAvgDailyGainGrams: number | null;
+  diffVsRanchAvgGrams: number | null;
+  estimatedWeightTodayKg: number | null;
+  ranchPercentile: number | null;
+  slowGrowth: boolean;
+  estimatedSaleDate: string | null;
+  reachedSaleTarget: boolean;
+  suggestion: GrowthDestinationSuggestion | null;
+}
+
+export interface GrowthAnimalSeries {
+  animalKey: string;
+  animalId: string | null;
+  folioInterno: string;
+  sex: 'FEMALE' | 'MALE' | null;
+  weightsByStage: Partial<
+    Record<StageWeightAverage['stageKey'], StageWeightPointRecord>
+  >;
+}
+
+export interface GrowthOverviewSummary {
+  stageAverages: StageWeightAverage[];
+  stagePoints: StageWeightPointRecord[];
+  animalSeries: GrowthAnimalSeries[];
+  ranking: GrowthRankEntryRecord[];
+  ranchAverageDailyGainGrams: number | null;
+  saleWeightTargetKg: number;
+  slowGrowthCount: number;
+  reachedTargetCount: number;
+  projectedSaleCount: number;
+  hasData: boolean;
 }
 
 export interface WeaningWeightSummary {
@@ -121,6 +184,7 @@ export interface ReproductiveOverview {
   overallProlificity: number | null;
   prolificityRatio: RatioAggregate | null;
   mortalityWeaning: MortalityWeaningSummary;
+  growth: GrowthOverviewSummary;
   unproductive: UnproductiveFemalesSummary;
 }
 
@@ -956,10 +1020,15 @@ function normalizeStageSex(value: unknown): 'FEMALE' | 'MALE' | null {
   return null;
 }
 
-function summarizeStageWeights(
-  rootObj: Record<string, unknown> | null,
-  seasons: SeasonReproductionMetric[]
-): WeaningWeightSummary {
+interface ExtractedStageWeights {
+  stageAverages: StageWeightAverage[];
+  stagePoints: StageWeightPointRecord[];
+  animalSeries: GrowthAnimalSeries[];
+}
+
+function extractStageWeights(
+  rootObj: Record<string, unknown> | null
+): ExtractedStageWeights {
   const rawPoints = rootObj
     ? (rootObj.weightByStage ??
         rootObj.weight_by_stage ??
@@ -970,15 +1039,21 @@ function summarizeStageWeights(
 
   const stageBuckets = new Map<
     StageWeightAverage['stageKey'],
-    { weightedSum: number; totalCount: number }
+    {
+      weightedSum: number;
+      totalCount: number;
+      femalesSum: number;
+      femalesCount: number;
+      malesSum: number;
+      malesCount: number;
+    }
   >();
-  let femalesSum = 0;
-  let femalesCount = 0;
-  let malesSum = 0;
-  let malesCount = 0;
+  const stagePoints: StageWeightPointRecord[] = [];
+  const animalSeriesMap = new Map<string, GrowthAnimalSeries>();
 
   if (Array.isArray(rawPoints)) {
-    for (const point of rawPoints) {
+    for (let idx = 0; idx < rawPoints.length; idx++) {
+      const point = rawPoints[idx];
       if (!point || typeof point !== 'object' || Array.isArray(point)) continue;
       const obj = point as Record<string, unknown>;
       const stageKey = normalizeStageKey(
@@ -988,6 +1063,8 @@ function summarizeStageWeights(
         obj.etapa
       );
       if (!stageKey) continue;
+      const stageLabel =
+        STAGE_METADATA.find((m) => m.key === stageKey)?.label ?? stageKey;
 
       const weightKg = toOptionalFiniteNumber(
         obj.weightKg,
@@ -1021,20 +1098,108 @@ function summarizeStageWeights(
       const bucket = stageBuckets.get(stageKey) ?? {
         weightedSum: 0,
         totalCount: 0,
+        femalesSum: 0,
+        femalesCount: 0,
+        malesSum: 0,
+        malesCount: 0,
       };
       bucket.weightedSum += weightKg * count;
       bucket.totalCount += count;
+
+      const sex = normalizeStageSex(obj.sex ?? obj.sexo);
+      const explicitFemalesAvg = toOptionalFiniteNumber(
+        obj.femalesAvgKg,
+        obj.females_avg_kg,
+        obj.pesoPromedioHembrasKg
+      );
+      const explicitMalesAvg = toOptionalFiniteNumber(
+        obj.malesAvgKg,
+        obj.males_avg_kg,
+        obj.pesoPromedioMachosKg
+      );
+
+      if (sex === 'FEMALE') {
+        bucket.femalesSum += weightKg * count;
+        bucket.femalesCount += count;
+      } else if (sex === 'MALE') {
+        bucket.malesSum += weightKg * count;
+        bucket.malesCount += count;
+      } else {
+        if (explicitFemalesAvg !== null && explicitFemalesAvg > 0) {
+          bucket.femalesSum += explicitFemalesAvg * count;
+          bucket.femalesCount += count;
+        }
+        if (explicitMalesAvg !== null && explicitMalesAvg > 0) {
+          bucket.malesSum += explicitMalesAvg * count;
+          bucket.malesCount += count;
+        }
+      }
       stageBuckets.set(stageKey, bucket);
 
-      if (stageKey === 'WEANING') {
-        const sex = normalizeStageSex(obj.sex ?? obj.sexo);
-        if (sex === 'FEMALE') {
-          femalesSum += weightKg * count;
-          femalesCount += count;
-        } else if (sex === 'MALE') {
-          malesSum += weightKg * count;
-          malesCount += count;
-        }
+      const animalId =
+        toNonEmptyString(obj.animalId, obj.animal_id, obj.id) ?? null;
+      const folioInterno =
+        toNonEmptyString(
+          obj.folioInterno,
+          obj.folio_interno,
+          obj.folio,
+          obj.arete
+        ) ?? null;
+
+      if (animalId || folioInterno) {
+        const ranchAverageKg = toOptionalFiniteNumber(
+          obj.ranchAverageKg,
+          obj.ranch_average_kg,
+          obj.promedioRanchoKg,
+          obj.promedio_rancho_kg
+        );
+        const explicitDiffKg = toOptionalFiniteNumber(
+          obj.differenceKg,
+          obj.difference_kg,
+          obj.diferenciaKg,
+          obj.diferencia_kg
+        );
+        const roundedWeight = roundTo(weightKg, 2);
+        const roundedRanchAvg =
+          ranchAverageKg !== null ? roundTo(ranchAverageKg, 2) : null;
+        const pointRecord: StageWeightPointRecord = {
+          key: `${animalId ?? folioInterno}-${stageKey}-${idx}`,
+          animalId,
+          folioInterno,
+          sex,
+          stageKey,
+          stageLabel,
+          date:
+            toNonEmptyString(obj.date, obj.fecha, obj.measuredAt, obj.measured_at) ??
+            null,
+          weightKg: roundedWeight,
+          ranchAverageKg: roundedRanchAvg,
+          differenceKg:
+            explicitDiffKg !== null
+              ? roundTo(explicitDiffKg, 2)
+              : roundedRanchAvg !== null
+                ? roundTo(roundedWeight - roundedRanchAvg, 2)
+                : null,
+          scrotalCircumferenceCm: toOptionalFiniteNumber(
+            obj.scrotalCircumferenceCm,
+            obj.scrotal_circumference_cm,
+            obj.circunferenciaEscrotalCm,
+            obj.circunferencia_escrotal_cm
+          ),
+        };
+        stagePoints.push(pointRecord);
+
+        const seriesKey = animalId ?? (folioInterno as string);
+        const existingSeries = animalSeriesMap.get(seriesKey) ?? {
+          animalKey: seriesKey,
+          animalId,
+          folioInterno: folioInterno ?? `ID ${(animalId as string).slice(0, 8)}`,
+          sex,
+          weightsByStage: {},
+        };
+        if (!existingSeries.sex && sex) existingSeries.sex = sex;
+        existingSeries.weightsByStage[stageKey] = pointRecord;
+        animalSeriesMap.set(seriesKey, existingSeries);
       }
     }
   }
@@ -1048,8 +1213,42 @@ function summarizeStageWeights(
       stageLabel: meta.label,
       averageWeightKg: roundTo(bucket.weightedSum / bucket.totalCount, 2),
       sampleCount: bucket.totalCount,
+      femalesAvgKg:
+        bucket.femalesCount > 0
+          ? roundTo(bucket.femalesSum / bucket.femalesCount, 2)
+          : null,
+      femalesCount: bucket.femalesCount,
+      malesAvgKg:
+        bucket.malesCount > 0
+          ? roundTo(bucket.malesSum / bucket.malesCount, 2)
+          : null,
+      malesCount: bucket.malesCount,
     });
   }
+
+  const animalSeries = Array.from(animalSeriesMap.values()).sort((a, b) => {
+    const stageCountDiff =
+      Object.keys(b.weightsByStage).length -
+      Object.keys(a.weightsByStage).length;
+    if (stageCountDiff !== 0) return stageCountDiff;
+    return a.folioInterno.localeCompare(b.folioInterno, 'es-MX', {
+      numeric: true,
+    });
+  });
+
+  return {
+    stageAverages,
+    stagePoints,
+    animalSeries,
+  };
+}
+
+function summarizeStageWeights(
+  rootObj: Record<string, unknown> | null,
+  seasons: SeasonReproductionMetric[],
+  extracted: ExtractedStageWeights
+): WeaningWeightSummary {
+  const { stageAverages } = extracted;
 
   const nestedWeaning =
     rootObj &&
@@ -1107,11 +1306,307 @@ function summarizeStageWeights(
   return {
     averageWeaningWeightKg,
     sampleCount: explicitSampleCount ?? weaningStage?.sampleCount ?? null,
-    femalesAvgKg: femalesCount > 0 ? roundTo(femalesSum / femalesCount, 2) : null,
-    femalesCount,
-    malesAvgKg: malesCount > 0 ? roundTo(malesSum / malesCount, 2) : null,
-    malesCount,
+    femalesAvgKg: weaningStage?.femalesAvgKg ?? null,
+    femalesCount: weaningStage?.femalesCount ?? 0,
+    malesAvgKg: weaningStage?.malesAvgKg ?? null,
+    malesCount: weaningStage?.malesCount ?? 0,
     stageAverages,
+  };
+}
+
+function normalizeGrowthDestination(
+  ...values: unknown[]
+): GrowthDestinationSuggestion | null {
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const upper = v.trim().toUpperCase();
+    if (!upper) continue;
+    if (upper === 'SELL' || upper === 'VENTA') return 'SELL';
+    if (
+      upper === 'BREEDING' ||
+      upper === 'CRIA' ||
+      upper === 'CRÍA' ||
+      upper === 'REEMPLAZO'
+    ) {
+      return 'BREEDING';
+    }
+    if (upper === 'FATTENING' || upper === 'ENGORDA') return 'FATTENING';
+  }
+  return null;
+}
+
+export function buildGrowthOverviewSummary(
+  rootObj: Record<string, unknown> | null,
+  extracted: ExtractedStageWeights
+): GrowthOverviewSummary {
+  const saleWeightTargetKg =
+    (rootObj
+      ? toOptionalFiniteNumber(
+          rootObj.saleWeightTargetKg,
+          rootObj.targetSaleWeightKg,
+          rootObj.peso_meta_venta_kg,
+          rootObj.pesoMetaVentaKg
+        )
+      : null) ?? DEFAULT_SALE_WEIGHT_TARGET_KG;
+
+  const rawRanking = rootObj
+    ? (rootObj.growthRanking ??
+        rootObj.growth_ranking ??
+        rootObj.rankingCrecimiento ??
+        rootObj.ranking_crecimiento ??
+        rootObj.growthRankings ??
+        rootObj.lambGrowthRanking)
+    : undefined;
+
+  const preliminaryEntries: Array<{
+    key: string;
+    animalId: string | null;
+    folioInterno: string;
+    sex: 'FEMALE' | 'MALE' | null;
+    ageDays: number | null;
+    dailyGainGrams: number | null;
+    explicitRanchAvgG: number | null;
+    explicitDiffG: number | null;
+    estimatedWeightTodayKg: number | null;
+    ranchPercentile: number | null;
+    slowGrowth: boolean;
+    estimatedSaleDate: string | null;
+    reachedSaleTarget: boolean;
+    suggestion: GrowthDestinationSuggestion | null;
+  }> = [];
+
+  if (Array.isArray(rawRanking)) {
+    for (let idx = 0; idx < rawRanking.length; idx++) {
+      const raw = rawRanking[idx];
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const obj = raw as Record<string, unknown>;
+
+      const animalId =
+        toNonEmptyString(
+          obj.animalId,
+          obj.animal_id,
+          obj.lambId,
+          obj.lamb_id,
+          obj.id
+        ) ?? null;
+      const rawFolio = toNonEmptyString(
+        obj.folioInterno,
+        obj.folio_interno,
+        obj.folio,
+        obj.arete
+      );
+
+      let dailyGainGrams = toOptionalFiniteNumber(
+        obj.dailyGainGrams,
+        obj.daily_gain_grams,
+        obj.gdpGrams,
+        obj.gdp_grams,
+        obj.adgGrams,
+        obj.adg_grams,
+        obj.gananciaDiariaG,
+        obj.ganancia_diaria_g,
+        obj.dailyGainG,
+        obj.gdpG,
+        obj.gdp
+      );
+      if (dailyGainGrams === null) {
+        const gainKgPerDay = toOptionalFiniteNumber(
+          obj.dailyGainKg,
+          obj.daily_gain_kg,
+          obj.kgDia,
+          obj.kg_dia
+        );
+        if (gainKgPerDay !== null) {
+          dailyGainGrams = gainKgPerDay * 1000;
+        }
+      }
+      if (dailyGainGrams !== null) {
+        dailyGainGrams = Math.round(dailyGainGrams);
+      }
+
+      if (!animalId && !rawFolio && dailyGainGrams === null) continue;
+
+      const folioInterno =
+        rawFolio ??
+        (animalId ? `ID ${animalId.slice(0, 8)}` : `Cordero #${idx + 1}`);
+
+      const estimatedWeightTodayKg = toOptionalFiniteNumber(
+        obj.estimatedWeightTodayKg,
+        obj.estimated_weight_today_kg,
+        obj.estimatedCurrentWeightKg,
+        obj.estimated_current_weight_kg,
+        obj.pesoEstimadoHoyKg,
+        obj.peso_estimado_hoy_kg,
+        obj.currentWeightKg,
+        obj.weightKg,
+        obj.pesoKg
+      );
+      const roundedEstWeight =
+        estimatedWeightTodayKg !== null
+          ? roundTo(estimatedWeightTodayKg, 1)
+          : null;
+
+      const explicitRanchAvgG = toOptionalFiniteNumber(
+        obj.ranchAvgDailyGainGrams,
+        obj.ranch_avg_daily_gain_grams,
+        obj.ranchAverageDailyGainGrams,
+        obj.promedioRanchoGdpG,
+        obj.promedio_rancho_gdp_g
+      );
+      const explicitDiffG = toOptionalFiniteNumber(
+        obj.diffVsRanchAvgGrams,
+        obj.diff_vs_ranch_avg_grams,
+        obj.diferenciaPromedioG,
+        obj.diferencia_promedio_g
+      );
+
+      const rawPercentile = toOptionalFiniteNumber(
+        obj.ranchPercentile,
+        obj.ranch_percentile,
+        obj.percentilRancho,
+        obj.percentil_rancho,
+        obj.percentile
+      );
+      const ranchPercentile =
+        rawPercentile !== null ? Math.round(rawPercentile) : null;
+
+      const explicitSlowGrowth = toOptionalBoolean(
+        obj.slowGrowth,
+        obj.slow_growth,
+        obj.creceLento,
+        obj.crece_lento
+      );
+      const slowGrowth =
+        explicitSlowGrowth ??
+        (dailyGainGrams !== null &&
+          dailyGainGrams < SLOW_GROWTH_GDP_THRESHOLD_G);
+
+      const estimatedSaleDate =
+        toNonEmptyString(
+          obj.estimatedSaleDate,
+          obj.estimated_sale_date,
+          obj.fechaEstimadaVenta,
+          obj.fecha_estimada_venta,
+          obj.targetWeightDate
+        ) ?? null;
+
+      const explicitReached = toOptionalBoolean(
+        obj.reachedSaleTarget,
+        obj.reached_sale_target,
+        obj.pesoMetaAlcanzado
+      );
+      const reachedSaleTarget =
+        explicitReached ??
+        (roundedEstWeight !== null && roundedEstWeight >= saleWeightTargetKg);
+
+      preliminaryEntries.push({
+        key: animalId ? `${animalId}-${idx}` : `${folioInterno}-${idx}`,
+        animalId,
+        folioInterno,
+        sex: normalizeStageSex(obj.sex ?? obj.sexo),
+        ageDays: toOptionalNonNegativeCount(
+          obj.ageDays,
+          obj.age_days,
+          obj.edadDias,
+          obj.edad_dias
+        ),
+        dailyGainGrams,
+        explicitRanchAvgG:
+          explicitRanchAvgG !== null ? Math.round(explicitRanchAvgG) : null,
+        explicitDiffG:
+          explicitDiffG !== null ? Math.round(explicitDiffG) : null,
+        estimatedWeightTodayKg: roundedEstWeight,
+        ranchPercentile,
+        slowGrowth,
+        estimatedSaleDate,
+        reachedSaleTarget,
+        suggestion: normalizeGrowthDestination(
+          obj.suggestion,
+          obj.destinoSugerido,
+          obj.destino_sugerido,
+          obj.suggestedDestination,
+          obj.destination
+        ),
+      });
+    }
+  }
+
+  const explicitRootAvgG = rootObj
+    ? toOptionalFiniteNumber(
+        rootObj.ranchAverageDailyGainGrams,
+        rootObj.ranch_average_daily_gain_grams,
+        rootObj.averageDailyGainGrams,
+        rootObj.avgGdpGrams,
+        rootObj.promedioRanchoGdpG,
+        rootObj.promedio_rancho_gdp_g
+      )
+    : null;
+
+  const computedEntryAvgG = averageNonNull(
+    preliminaryEntries.map((e) => e.dailyGainGrams),
+    0
+  );
+  const firstEntryRanchAvgG =
+    preliminaryEntries.find((e) => e.explicitRanchAvgG !== null)
+      ?.explicitRanchAvgG ?? null;
+
+  const ranchAverageDailyGainGrams =
+    explicitRootAvgG !== null
+      ? Math.round(explicitRootAvgG)
+      : (firstEntryRanchAvgG ?? computedEntryAvgG);
+
+  const ranking: GrowthRankEntryRecord[] = preliminaryEntries
+    .map((e) => {
+      const ranchAvg = e.explicitRanchAvgG ?? ranchAverageDailyGainGrams;
+      const diffVsRanchAvgGrams =
+        e.explicitDiffG ??
+        (e.dailyGainGrams !== null && ranchAvg !== null
+          ? Math.round(e.dailyGainGrams - ranchAvg)
+          : null);
+      return {
+        key: e.key,
+        animalId: e.animalId,
+        folioInterno: e.folioInterno,
+        sex: e.sex,
+        ageDays: e.ageDays,
+        dailyGainGrams: e.dailyGainGrams,
+        ranchAvgDailyGainGrams: ranchAvg,
+        diffVsRanchAvgGrams,
+        estimatedWeightTodayKg: e.estimatedWeightTodayKg,
+        ranchPercentile: e.ranchPercentile,
+        slowGrowth: e.slowGrowth,
+        estimatedSaleDate: e.estimatedSaleDate,
+        reachedSaleTarget: e.reachedSaleTarget,
+        suggestion: e.suggestion,
+      };
+    })
+    .sort((a, b) => {
+      const gdpDiff =
+        (b.dailyGainGrams ?? Number.NEGATIVE_INFINITY) -
+        (a.dailyGainGrams ?? Number.NEGATIVE_INFINITY);
+      if (gdpDiff !== 0) return gdpDiff;
+      const pctDiff = (b.ranchPercentile ?? -1) - (a.ranchPercentile ?? -1);
+      if (pctDiff !== 0) return pctDiff;
+      return a.folioInterno.localeCompare(b.folioInterno, 'es-MX', {
+        numeric: true,
+      });
+    });
+
+  return {
+    stageAverages: extracted.stageAverages,
+    stagePoints: extracted.stagePoints,
+    animalSeries: extracted.animalSeries,
+    ranking,
+    ranchAverageDailyGainGrams,
+    saleWeightTargetKg,
+    slowGrowthCount: ranking.filter((r) => r.slowGrowth).length,
+    reachedTargetCount: ranking.filter((r) => r.reachedSaleTarget).length,
+    projectedSaleCount: ranking.filter((r) => r.estimatedSaleDate !== null)
+      .length,
+    hasData:
+      extracted.stageAverages.length > 0 ||
+      extracted.stagePoints.length > 0 ||
+      ranking.length > 0,
   };
 }
 
@@ -1119,7 +1614,8 @@ export function buildMortalityWeaningSummary(
   rootObj: Record<string, unknown> | null,
   seasons: SeasonReproductionMetric[],
   birthsPerPregnantAgg: { value: number | null; ratio: RatioAggregate | null },
-  birthsPerExposedAgg: { value: number | null; ratio: RatioAggregate | null }
+  birthsPerExposedAgg: { value: number | null; ratio: RatioAggregate | null },
+  extractedStages: ExtractedStageWeights = extractStageWeights(rootObj)
 ): MortalityWeaningSummary {
   const nestedSummary =
     rootObj &&
@@ -1318,7 +1814,7 @@ export function buildMortalityWeaningSummary(
     }
   }
 
-  const weaningWeight = summarizeStageWeights(rootObj, seasons);
+  const weaningWeight = summarizeStageWeights(rootObj, seasons, extractedStages);
 
   const hasData =
     overallAchievedBirthsPct !== null ||
@@ -1453,12 +1949,15 @@ export function normalizeReproductiveOverview(
     2
   );
 
+  const extractedStages = extractStageWeights(rootObj);
   const mortalityWeaning = buildMortalityWeaningSummary(
     rootObj,
     seasons,
     birthsPerPregnantAgg,
-    birthsPerExposedAgg
+    birthsPerExposedAgg,
+    extractedStages
   );
+  const growth = buildGrowthOverviewSummary(rootObj, extractedStages);
 
   return {
     seasons,
@@ -1471,6 +1970,7 @@ export function normalizeReproductiveOverview(
     overallProlificity: prolificityAgg.value,
     prolificityRatio: prolificityAgg.ratio,
     mortalityWeaning,
+    growth,
     unproductive: normalizeUnproductiveFemalesOverview(payload),
   };
 }

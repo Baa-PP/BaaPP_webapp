@@ -2102,6 +2102,82 @@ td small,
   gap: 6px;
 }
 
+/* --- WEB-023: Curvas de peso y ranking GDP --- */
+.analytics-inline-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.analytics-inline-select select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.analytics-stage-compare-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.analytics-stage-compare-card a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-stage-pills {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.analytics-stage-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.analytics-stage-chip strong {
+  font-size: 18px;
+  color: var(--brand-primary);
+}
+
+.analytics-stage-chip small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.analytics-filter-grid-4 {
+  grid-template-columns: minmax(190px, 1.3fr) repeat(3, minmax(150px, 1fr));
+}
+
+.analytics-gdp-positive {
+  color: var(--semantic-success);
+}
+
+.analytics-gdp-negative {
+  color: var(--semantic-danger);
+}
+
 @media (max-width: 1000px) {
   .analytics-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
