@@ -3015,3 +3015,583 @@ td small,
     grid-template-columns: 1fr;
   }
 }
+
+/* --- WEB-021: Indicadores reproductivos (Apache ECharts) --- */
+.analytics-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.analytics-view .title-row {
+  margin-bottom: 0;
+}
+
+.analytics-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--semantic-danger-bg);
+  border: 1px solid var(--semantic-danger);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.analytics-error strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--semantic-danger);
+  font-size: 14px;
+}
+
+.analytics-error .error {
+  margin: 0;
+}
+
+.analytics-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.analytics-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.analytics-kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.analytics-kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-kpi-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.analytics-chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+
+.analytics-chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+.analytics-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.analytics-chart-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.analytics-chart-head p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-chart-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-control);
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  color: var(--brand-primary);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.echart-canvas {
+  width: 100%;
+  min-height: 260px;
+}
+
+.analytics-table th.num,
+.analytics-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-num-strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* --- WEB-025: Tablero de alertas de vientres improductivos (CULL/SELL) --- */
+.analytics-kpi-danger {
+  border-color: #FECACA;
+  background: linear-gradient(180deg, #FFF5F5 0%, var(--surface-base) 100%);
+}
+
+.analytics-kpi-danger .analytics-kpi-value {
+  color: var(--semantic-danger);
+}
+
+.analytics-kpi-warning {
+  border-color: #FDE68A;
+  background: linear-gradient(180deg, #FFFBEB 0%, var(--surface-base) 100%);
+}
+
+.analytics-kpi-warning .analytics-kpi-value {
+  color: var(--semantic-warning);
+}
+
+.analytics-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #FFFBEB;
+  border: 1px solid #F59E0B;
+  border-left: 4px solid var(--semantic-warning);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.analytics-alert-banner-copy strong {
+  display: block;
+  font-size: 14px;
+  color: #92400E;
+}
+
+.analytics-alert-banner-copy p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-alert-banner a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-alerts-filters {
+  margin-bottom: 0;
+}
+
+.analytics-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.analytics-alert-row-danger td:first-child {
+  border-left: 4px solid var(--semantic-danger);
+}
+
+.analytics-alert-row-warning td:first-child {
+  border-left: 4px solid var(--semantic-warning);
+}
+
+.analytics-trigger-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analytics-trigger-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.analytics-trigger-item small {
+  margin-top: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.analytics-trigger-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.analytics-trigger-badge.badge-danger {
+  background: var(--semantic-danger-bg);
+  color: var(--semantic-danger);
+  border: 1px solid #FECACA;
+}
+
+.analytics-trigger-badge.badge-warning {
+  background: #FFFBEB;
+  color: #92400E;
+  border: 1px solid #FDE68A;
+}
+
+.analytics-trigger-neutral {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-custom-reason {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.analytics-mortality-high {
+  color: var(--semantic-danger);
+}
+
+.analytics-dest-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 5px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  min-width: 118px;
+}
+
+.analytics-dest-badge strong {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.analytics-dest-badge span {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.analytics-dest-badge.dest-cull {
+  background: var(--semantic-danger-bg);
+  border-color: var(--semantic-danger);
+  color: var(--semantic-danger);
+}
+
+.analytics-dest-badge.dest-sell {
+  background: #FFFBEB;
+  border-color: var(--semantic-warning);
+  color: #92400E;
+}
+
+.analytics-dest-badge.dest-breeding {
+  background: #F0FDF4;
+  border-color: var(--semantic-success);
+  color: var(--semantic-success);
+}
+
+.analytics-dest-badge.dest-review {
+  background: var(--surface-support);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* --- WEB-022: Gráficas de mortalidad y destete con alerta visual --- */
+.analytics-mortality-alert-panel p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-mortality-alert-panel a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-status-banner-ok {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #F0FDF4;
+  border: 1px solid #86EFAC;
+  border-left: 4px solid var(--semantic-success);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+}
+
+.analytics-status-banner-ok strong {
+  display: block;
+  font-size: 14px;
+  color: var(--semantic-success);
+}
+
+.analytics-status-banner-ok p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-alert-icon-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.analytics-alert-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+  background: #FEE2E2;
+  color: var(--semantic-danger);
+}
+
+.analytics-ok-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+  background: #DCFCE7;
+  color: var(--semantic-success);
+}
+
+.analytics-kpi-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analytics-threshold-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.analytics-threshold-pill.threshold-alert {
+  background: var(--semantic-danger-bg);
+  color: var(--semantic-danger);
+  border: 1px solid #FECACA;
+}
+
+.analytics-threshold-pill.threshold-ok {
+  background: #F0FDF4;
+  color: var(--semantic-success);
+  border: 1px solid #86EFAC;
+}
+
+.analytics-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 20px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-support);
+  text-align: center;
+}
+
+.analytics-cell-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* --- WEB-023: Curvas de peso y ranking GDP --- */
+.analytics-inline-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.analytics-inline-select select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.analytics-stage-compare-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.analytics-stage-compare-card a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-stage-pills {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.analytics-stage-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  background: var(--surface-support);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.analytics-stage-chip strong {
+  font-size: 18px;
+  color: var(--brand-primary);
+}
+
+.analytics-stage-chip small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.analytics-filter-grid-4 {
+  grid-template-columns: minmax(190px, 1.3fr) repeat(3, minmax(150px, 1fr));
+}
+
+.analytics-gdp-positive {
+  color: var(--semantic-success);
+}
+
+.analytics-gdp-negative {
+  color: var(--semantic-danger);
+}
+
+/* --- WEB-024: Tablero de destetes pendientes --- */
+.analytics-weaning-overdue {
+  border-color: #FECACA;
+}
+
+.analytics-weaning-upcoming {
+  border-color: var(--border-strong);
+}
+
+.analytics-weaning-head {
+  flex-wrap: wrap;
+}
+
+.analytics-weaning-title-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.analytics-weaning-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.analytics-weaning-empty {
+  padding: 18px 20px;
+}
+
+.analytics-weaning-empty strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.analytics-weaning-empty p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1000px) {
+  .analytics-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analytics-charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
