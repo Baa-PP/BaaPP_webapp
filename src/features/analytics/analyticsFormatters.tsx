@@ -21,6 +21,32 @@ export function formatWeightKg(value: number | null): string {
     : '—';
 }
 
+export function formatGramsPerDay(value: number | null): string {
+  return value !== null && Number.isFinite(value)
+    ? `${Math.round(value)} g/d`
+    : '—';
+}
+
+export function formatSignedGramsPerDay(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  const rounded = Math.round(value);
+  if (rounded > 0) return `+${rounded} g/d`;
+  return `${rounded} g/d`;
+}
+
+export function formatShortDateEs(isoDate: string | null): string {
+  if (!isoDate) return '—';
+  const parsed = new Date(
+    isoDate + (isoDate.length === 10 ? 'T00:00:00' : '')
+  );
+  if (Number.isNaN(parsed.getTime())) return isoDate;
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(parsed);
+}
+
 export function formatCount(value: number | null): string {
   return value !== null && Number.isFinite(value) ? String(value) : '—';
 }
