@@ -222,7 +222,12 @@ export function normalizePedigreeResponse(
       fallbackSubject?.folioInterno ??
       'Sin folio',
     registroUno:
-      asNonEmptyString(rawSubject.registroUno ?? rawSubject.registro_uno) ??
+      asNonEmptyString(
+        rawSubject.registroUno ??
+          rawSubject.registro_uno ??
+          rawSubject.folioUno ??
+          rawSubject.folio_uno
+      ) ??
       fallbackSubject?.registroUno ??
       null,
     sex: normalizeSex(rawSubject.sex ?? rawSubject.sexo ?? fallbackSubject?.sex),
@@ -235,7 +240,12 @@ export function normalizePedigreeResponse(
       fallbackSubject?.color ??
       null,
     breeder:
-      asNonEmptyString(rawSubject.breeder ?? rawSubject.criador ?? rawSubject.criador_name) ??
+      asNonEmptyString(
+        rawSubject.breeder ??
+          rawSubject.criador ??
+          rawSubject.criadorName ??
+          rawSubject.criador_name
+      ) ??
       fallbackSubject?.breeder ??
       null,
     birthDate:
@@ -300,11 +310,15 @@ export function normalizePedigreeResponse(
       registered: registered && Boolean(animalId),
       animalId: registered ? animalId : null,
       folioInterno,
-      registroUno: asNonEmptyString(row.registroUno ?? row.registro_uno),
+      registroUno: asNonEmptyString(
+        row.registroUno ?? row.registro_uno ?? row.folioUno ?? row.folio_uno
+      ),
       sex,
       breed: asNonEmptyString(row.breed ?? row.raza),
       color: asNonEmptyString(row.color),
-      breeder: asNonEmptyString(row.breeder ?? row.criador ?? row.criador_name),
+      breeder: asNonEmptyString(
+        row.breeder ?? row.criador ?? row.criadorName ?? row.criador_name
+      ),
       birthDate: asNonEmptyString(
         row.birthDate ?? row.birth_date ?? row.fecha_nacimiento
       ),
@@ -413,8 +427,8 @@ export function normalizePedigreeResponse(
   };
 }
 
-const COLUMN_SPACING_X = 290;
-const LEAF_STEP_Y = 148;
+const COLUMN_SPACING_X = 320;
+const LEAF_STEP_Y = 210;
 
 function computeSlotY(path: string, maxDepth: number): number {
   const depth = path.length;

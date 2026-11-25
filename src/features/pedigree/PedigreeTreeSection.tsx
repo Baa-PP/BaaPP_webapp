@@ -209,6 +209,18 @@ export function PedigreeTreeSection({
           <div className="pedigree-toolbar">
             <div className="pedigree-legend" aria-label="Leyenda del árbol genealógico">
               <span className="pedigree-legend-item">
+                <span className="pedigree-sex-pill sex-female">
+                  <span className="pedigree-sex-icon" aria-hidden="true">♀</span> Hembra
+                </span>
+                Nodo Rosa
+              </span>
+              <span className="pedigree-legend-item">
+                <span className="pedigree-sex-pill sex-male">
+                  <span className="pedigree-sex-icon" aria-hidden="true">♂</span> Macho
+                </span>
+                Nodo Azul
+              </span>
+              <span className="pedigree-legend-item">
                 <span className="pedigree-swatch swatch-paternal" aria-hidden="true" />
                 Línea paterna (P)
               </span>
@@ -278,8 +290,8 @@ export function PedigreeTreeSection({
               edges={graph.edges}
               nodeTypes={NODE_TYPES}
               fitView
-              fitViewOptions={{ padding: 0.16, minZoom: 0.35, maxZoom: 1.05 }}
-              minZoom={0.25}
+              fitViewOptions={{ padding: 0.14, minZoom: 0.25, maxZoom: 1.05 }}
+              minZoom={0.2}
               maxZoom={1.6}
               nodesDraggable={false}
               nodesConnectable={false}
