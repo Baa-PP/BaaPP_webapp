@@ -6,8 +6,8 @@ export interface SabanaRow {
   chipSiniiga?: string;              // C: CHIP (484...)
   fechaNacimiento: string;           // D: FECHA NACIMIENTO
   fechaDestete?: string;             // E: FECHA DESTETE
-  edadMeses: number;                 // F: EDAD MESES
-  edadDias: number;                  // G: EDAD DIAS
+  edadMeses?: number;                // F: EDAD MESES
+  edadDias?: number;                 // G: EDAD DIAS
   pesoNacimientoKg?: number;         // H: PESO NACIMIENTO
   peso120DiasKg?: number;            // I: PESO 120 DIAS
   peso150DiasKg?: number;            // J: PESO 150 DIAS
@@ -100,13 +100,13 @@ function formatDecimalCell(value: number | undefined): string {
   return decimalFormatter.format(value);
 }
 
-function formatMonthsCell(value: number): string {
-  if (!Number.isFinite(value)) return "—";
+function formatMonthsCell(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return value.toFixed(1);
 }
 
-function formatIntegerCell(value: number): string {
-  if (!Number.isFinite(value)) return "—";
+function formatIntegerCell(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return integerFormatter.format(Math.round(value));
 }
 
@@ -155,6 +155,7 @@ export const sabanaColumns: ColumnDef<SabanaRow, any>[] = [
     id: "edadMeses",
     header: "F · Edad (Meses)",
     size: 125,
+    sortUndefined: "last",
     cell: (info) => formatMonthsCell(info.getValue()),
     meta: { letter: "F", srsHeader: "EDAD MESES", align: "right" } satisfies SabanaColumnMeta,
   }),
@@ -162,6 +163,7 @@ export const sabanaColumns: ColumnDef<SabanaRow, any>[] = [
     id: "edadDias",
     header: "G · Edad (Días)",
     size: 120,
+    sortUndefined: "last",
     cell: (info) => formatIntegerCell(info.getValue()),
     meta: { letter: "G", srsHeader: "EDAD DIAS", align: "right" } satisfies SabanaColumnMeta,
   }),

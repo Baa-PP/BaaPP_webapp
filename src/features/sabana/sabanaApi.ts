@@ -101,11 +101,14 @@ export function normalizeSabanaRow(raw: unknown): SabanaRow | null {
   const edadDias =
     rawEdadDias !== undefined
       ? Math.max(0, Math.round(rawEdadDias))
-      : (computedAge?.edadDias ?? 0);
+      : computedAge?.edadDias;
   const edadMeses =
     rawEdadMeses !== undefined
       ? Math.round(rawEdadMeses * 10) / 10
-      : (computedAge?.edadMeses ?? Math.round((edadDias / 30.0) * 10) / 10);
+      : (computedAge?.edadMeses ??
+        (edadDias !== undefined
+          ? Math.round((edadDias / 30.0) * 10) / 10
+          : undefined));
 
   const sexo = normalizeSex(r.sexo ?? r.sex);
   const rawCircumference = toFiniteNumber(
@@ -242,9 +245,15 @@ export function applyCutoffDateToRows(
   return rows.map((row) => {
     const computed = computeSabanaAge(row.fechaNacimiento, cutoffIso);
     if (!computed) {
-      return row.fechaCorteIso === cutoffIso
-        ? row
-        : { ...row, fechaCorteIso: cutoffIso };
+      if (row.fechaCorteIso === cutoffIso) {
+        return row;
+      }
+      return {
+        ...row,
+        edadDias: undefined,
+        edadMeses: undefined,
+        fechaCorteIso: cutoffIso,
+      };
     }
     return {
       ...row,

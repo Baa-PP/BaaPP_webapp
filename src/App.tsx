@@ -49,7 +49,7 @@ const route=()=>location.hash.replace(/^#\/?/,'')||'inventario';
 const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=new Date(s);return isNaN(d.getTime())?s:new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(d)};
 const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.lectura===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
-const canSabana=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.exportacion===true||s.permissions?.export===true||s.permissions?.sabana===true;
+const canSabana=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.exportacion===true||s.permissions?.export_data===true||s.permissions?.export===true||s.permissions?.sabana===true;
 const canAnalytics=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.lectura===true||s.permissions?.analytics===true||s.permissions?.analytics?.read===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const canEditRanch=(s:Session)=>RANCH_EDIT_ROLES.includes(s.role);
 const canManageWorkers=(s:Session)=>s.role==='OWNER';

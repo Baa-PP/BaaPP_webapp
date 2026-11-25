@@ -121,6 +121,7 @@ export function SabanaView({
     },
     onSortingChange: setSorting,
     onGlobalFilterChange: setQuickFilter,
+    getColumnCanGlobalFilter: (column) => column.id === "folio",
     globalFilterFn: (row, _columnId, filterValue) => {
       const needle = String(filterValue ?? "").trim().toLowerCase();
       if (!needle) return true;
