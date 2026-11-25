@@ -752,6 +752,7 @@ function PortalApp(){
                   animal={animal}
                   activeRanchId={activeRanchId}
                   activeRanchOwner={selectedRanch?.owner_name}
+                  username={s.username}
                 />
               )}
             </>

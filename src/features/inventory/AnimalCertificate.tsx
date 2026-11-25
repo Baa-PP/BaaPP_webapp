@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, getSessionGeneration } from '../../api/client';
 import { API_IS_HTTPS } from '../../api/config';
 import { AnimalWeightsSection } from './AnimalWeightsSection';
+
+const PedigreeTreeSection = lazy(() => import('../pedigree/PedigreeTreeSection'));
 
 export interface AnimalWeight {
   id?: string;
@@ -415,12 +417,14 @@ interface AnimalCertificateProps {
   animal: AnimalDetail;
   activeRanchId: string | null;
   activeRanchOwner?: string;
+  username?: string | null;
 }
 
 export function AnimalCertificate({
   animal,
   activeRanchId,
   activeRanchOwner,
+  username,
 }: AnimalCertificateProps) {
   const isFemale = animal.sex === 'FEMALE';
   const isMale = animal.sex === 'MALE';
@@ -654,6 +658,22 @@ export function AnimalCertificate({
       </div>
 
       <AnimalWeightsSection animal={animal} activeRanchId={activeRanchId} />
+
+      <Suspense
+        fallback={
+          <section className="cert-section pedigree-section" aria-label="Árbol genealógico">
+            <div className="pedigree-state-box">
+              <p className="muted">Cargando visor del árbol genealógico…</p>
+            </div>
+          </section>
+        }
+      >
+        <PedigreeTreeSection
+          animal={animal}
+          activeRanchId={activeRanchId}
+          username={username}
+        />
+      </Suspense>
 
       <footer>
         <span>
