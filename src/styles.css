@@ -3595,3 +3595,335 @@ td small,
     grid-template-columns: 1fr;
   }
 }
+
+
+/* --- WEB-012: Sábana Oficial Virtualizada (24 columnas A–X) --- */
+.sabana-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sabana-head-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sabana-metric-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.sabana-metric-pill strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.sabana-filters-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sabana-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) repeat(3, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.sabana-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sabana-toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.sabana-inline-control {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.sabana-inline-control input,
+.sabana-inline-control select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sabana-inline-control input:focus,
+.sabana-inline-control select:focus {
+  border-color: var(--accent-secondary);
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -1px;
+}
+
+.sabana-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sabana-submit-btn {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.sabana-notice {
+  padding: 10px 14px;
+  border: 1px solid #FDE68A;
+  border-radius: var(--radius-control);
+  background: #FFFBEB;
+  color: #92400E;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sabana-card {
+  background: var(--surface-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.sabana-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-support);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sabana-status-bar strong {
+  color: var(--text-primary);
+}
+
+.sabana-scroll-container {
+  position: relative;
+  width: 100%;
+  height: min(64vh, 620px);
+  min-height: 360px;
+  overflow: auto;
+  will-change: scroll-position;
+  background: var(--surface-base);
+}
+
+.sabana-scroll-container:focus-visible {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -2px;
+}
+
+.sabana-table {
+  display: grid;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.sabana-thead {
+  display: grid;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #F1F5F9;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.sabana-tbody {
+  display: grid;
+  position: relative;
+}
+
+.sabana-tr {
+  display: flex;
+  width: 100%;
+}
+
+.sabana-body-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sabana-body-row.is-striped {
+  background: #F8FAFC;
+}
+
+.sabana-body-row:hover {
+  background: #ECFDF5;
+}
+
+.sabana-th,
+.sabana-td {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-right: 1px solid var(--border-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sabana-th {
+  height: 42px;
+  padding: 0;
+  background: #F1F5F9;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.sabana-th.is-pinned {
+  position: sticky;
+  z-index: 5;
+  background: #E2E8F0;
+}
+
+.sabana-td {
+  height: 100%;
+  color: var(--text-primary);
+}
+
+.sabana-td.is-folio {
+  font-weight: 700;
+  color: var(--brand-primary);
+}
+
+.sabana-td.is-numeric {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.sabana-td.is-pinned {
+  position: sticky;
+  z-index: 2;
+  background: var(--surface-base);
+}
+
+.sabana-body-row.is-striped .sabana-td.is-pinned {
+  background: #F8FAFC;
+}
+
+.sabana-body-row:hover .sabana-td.is-pinned {
+  background: #ECFDF5;
+}
+
+.sabana-th.is-last-pinned,
+.sabana-td.is-last-pinned {
+  border-right: 1px solid var(--border-strong);
+  box-shadow: 3px 0 6px -2px rgba(15, 23, 42, 0.14);
+}
+
+.sabana-sort-button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.sabana-th.is-numeric .sabana-sort-button {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.sabana-sort-button:hover {
+  background: rgba(27, 67, 50, 0.08);
+}
+
+.sabana-sort-button:focus-visible {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: -2px;
+}
+
+.sabana-header-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sabana-sort-indicator {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.sabana-sex-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sabana-sex-pill.is-female {
+  background: #FCE7F3;
+  color: #9D174D;
+}
+
+.sabana-sex-pill.is-male {
+  background: #DBEAFE;
+  color: #1E40AF;
+}
+
+@media (max-width: 1000px) {
+  .sabana-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .sabana-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
