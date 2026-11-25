@@ -3812,35 +3812,42 @@ td small,
   color: var(--text-secondary);
 }
 
-/* Custom React Flow node card */
+/* Custom React Flow node card (WEB-020: Nodos Rosa/Azul con 5 datos) */
 .pedigree-node {
-  width: 232px;
-  padding: 10px 12px;
+  width: 256px;
   border-radius: var(--radius-card);
   background: var(--surface-base);
   border: 1.5px solid var(--border-strong);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  border-left-width: 5px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 6px;
   color: var(--text-primary);
   font-size: 12px;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .pedigree-node.sex-female {
-  border-color: #F472B6;
-  background: linear-gradient(180deg, #FDF2F8 0%, #FFFFFF 36%);
+  border-color: #EC4899;
+  border-left-color: #BE185D;
+  background: #FFFBFD;
 }
 
 .pedigree-node.sex-male {
-  border-color: #60A5FA;
-  background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 36%);
+  border-color: #3B82F6;
+  border-left-color: #1D4ED8;
+  background: #F8FBFF;
+}
+
+.pedigree-node.sex-unknown {
+  border-color: #94A3B8;
+  border-left-color: #475569;
 }
 
 .pedigree-node-subject {
-  border-width: 2.5px;
-  box-shadow: 0 4px 12px rgba(27, 67, 50, 0.16);
+  border-width: 2px;
+  border-left-width: 6px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
 }
 
 .pedigree-node-subject.sex-female {
@@ -3856,12 +3863,13 @@ td small,
 }
 
 .pedigree-node-clickable:hover {
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
 }
 
 .pedigree-node-external {
   border: 2px dashed #D97706 !important;
-  background: linear-gradient(180deg, #FFFBEB 0%, #FFFFFF 45%) !important;
+  border-left: 5px dashed #B45309 !important;
+  background: #FFFDF5 !important;
 }
 
 .pedigree-node-missing {
@@ -3877,11 +3885,30 @@ td small,
   border: 1.5px solid var(--surface-base);
 }
 
-.pedigree-node-top {
+.pedigree-node-band {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 0 calc(var(--radius-card) - 2px) 0 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-support);
+}
+
+.pedigree-node-band.sex-female {
+  background: #FCE7F3;
+  border-bottom-color: #FBCFE8;
+}
+
+.pedigree-node-band.sex-male {
+  background: #DBEAFE;
+  border-bottom-color: #BFDBFE;
+}
+
+.pedigree-node-external .pedigree-node-band {
+  background: #FEF3C7;
+  border-bottom-color: #FDE68A;
 }
 
 .pedigree-node-rel {
@@ -3889,7 +3916,7 @@ td small,
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3898,38 +3925,71 @@ td small,
 .pedigree-sex-pill {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
+  gap: 4px;
+  padding: 2px 7px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
+.pedigree-sex-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
 .pedigree-sex-pill.sex-female {
-  background: #FCE7F3;
+  background: #FFFFFF;
   color: #9D174D;
-  border: 1px solid #FBCFE8;
+  border: 1.5px solid #DB2777;
 }
 
 .pedigree-sex-pill.sex-male {
-  background: #DBEAFE;
-  color: #1E40AF;
-  border: 1px solid #BFDBFE;
+  background: #FFFFFF;
+  color: #1E3A8A;
+  border: 1.5px solid #2563EB;
 }
 
 .pedigree-sex-pill.sex-unknown {
-  background: var(--surface-support);
+  background: #FFFFFF;
   color: var(--text-secondary);
   border: 1px solid var(--border-strong);
 }
 
-.pedigree-node-title-row {
+.pedigree-node-body {
+  padding: 8px 10px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pedigree-folio-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pedigree-folio-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pedigree-field-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.pedigree-node-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex-wrap: wrap;
-  gap: 5px;
 }
 
 .pedigree-node-folio {
@@ -3977,23 +4037,40 @@ td small,
   font-weight: 700;
 }
 
-.pedigree-node-details {
+.pedigree-node-fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+  padding: 6px 7px;
+  border-radius: 5px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+}
+
+.pedigree-field-item {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
+  gap: 1px;
+}
+
+.pedigree-field-item dt {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--text-secondary);
 }
 
-.pedigree-node-detail-line {
+.pedigree-field-item dd {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.pedigree-node-detail-line b {
-  color: var(--text-primary);
-  font-weight: 600;
 }
 
 .pedigree-node-caption {
