@@ -1,10 +1,13 @@
-import { apiFetch } from "../../api/client";
+import { apiFetch, apiFetchRaw, type ApiError } from "../../api/client";
 import {
   computeSabanaAge,
   getTodayIsoDate,
   parseIsoCalendarDateUtcMs,
   type SabanaRow,
 } from "./SabanaColumns";
+
+export const SABANA_XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export interface SabanaFilters {
   q: string;
@@ -323,4 +326,381 @@ export async function fetchSabanaReport(
     serverCutoffIso,
     truncated,
   };
+}
+
+export type SabanaExportPhase = "requesting" | "downloading" | "saving";
+
+export interface SabanaExportProgress {
+  phase: SabanaExportPhase;
+  loadedBytes: number;
+  totalBytes: number | null;
+  percent: number | null;
+}
+
+export interface SabanaExportResult {
+  filename: string;
+  bytes: number;
+}
+
+export interface SabanaExportOptions {
+  filters: SabanaFilters;
+  ranchId: string;
+  ranchName?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: SabanaExportProgress) => void;
+  triggerDownload?: (blob: Blob, filename: string) => void;
+}
+
+export function buildSabanaExportQueryString(filters: SabanaFilters): string {
+  const params = new URLSearchParams();
+  params.set("format", "xlsx");
+  const q = filters.q.trim();
+  const raza = filters.raza.trim();
+  if (q) params.set("q", q);
+  if (filters.sexo) params.set("sexo", filters.sexo);
+  if (raza) params.set("raza", raza);
+  if (filters.estado) params.set("estado", filters.estado);
+  return `?${params.toString()}`;
+}
+
+export function buildFallbackSabanaFilename(
+  ranchName?: string,
+  ranchId?: string
+): string {
+  const rawSlug = (ranchName || ranchId || "rancho")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  const slug = rawSlug || "rancho";
+  return `sabana-${slug}-${getTodayIsoDate()}.xlsx`;
+}
+
+function sanitizeFilename(raw: string): string | null {
+  const trimmed = raw
+    .replace(/[\r\n\0]/g, "")
+    .replace(/^.*[/\\]/, "")
+    .replace(/[<>:"|?*]/g, "_")
+    .trim();
+  if (!trimmed || trimmed === "." || trimmed === "..") return null;
+  return trimmed.toLowerCase().endsWith(".xlsx") ? trimmed : `${trimmed}.xlsx`;
+}
+
+export function extractDownloadFilename(
+  contentDisposition: string | null,
+  fallbackName: string
+): string {
+  if (!contentDisposition) return fallbackName;
+
+  const utf8Match = /filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;\r\n]+)/i.exec(
+    contentDisposition
+  );
+  if (utf8Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ""));
+      const clean = sanitizeFilename(decoded);
+      if (clean) return clean;
+    } catch {
+      // Fallback to standard filename parameter below
+    }
+  }
+
+  const quotedMatch = /filename\s*=\s*"([^"]+)"/i.exec(contentDisposition);
+  if (quotedMatch?.[1]) {
+    const clean = sanitizeFilename(quotedMatch[1]);
+    if (clean) return clean;
+  }
+
+  const bareMatch = /filename\s*=\s*([^;\r\n]+)/i.exec(contentDisposition);
+  if (bareMatch?.[1]) {
+    const clean = sanitizeFilename(bareMatch[1]);
+    if (clean) return clean;
+  }
+
+  return fallbackName;
+}
+
+export function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 100 ? 0 : 2)} MB`;
+}
+
+export function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = (err as { name?: unknown }).name;
+  return name === "AbortError";
+}
+
+function createExportValidationError(message: string, code: string): ApiError {
+  const err = new Error(message) as ApiError;
+  err.status = 0;
+  err.code = code;
+  return err;
+}
+
+export function formatSabanaExportError(err: unknown): string {
+  if (isAbortError(err)) {
+    return "Descarga cancelada.";
+  }
+
+  const apiErr = err as Partial<ApiError> | null;
+  const status = typeof apiErr?.status === "number" ? apiErr.status : undefined;
+  const code = typeof apiErr?.code === "string" ? apiErr.code.toUpperCase() : "";
+  const rawMessage =
+    err instanceof Error && typeof err.message === "string"
+      ? err.message.trim()
+      : "";
+
+  if (
+    code === "INSECURE_TRANSPORT" ||
+    code === "REDIRECT_BLOCKED" ||
+    code === "INVALID_XLSX_RESPONSE" ||
+    code === "EMPTY_XLSX_RESPONSE"
+  ) {
+    return rawMessage;
+  }
+
+  if (status === 401) {
+    return "Tu sesión venció mientras se preparaba el Excel. Vuelve a iniciar sesión para descargar la Sábana.";
+  }
+
+  if (status === 403) {
+    if (code === "INSUFFICIENT_PERMISSION") {
+      return "Tu cuenta no cuenta con permiso de exportación para descargar la Sábana de este rancho. Pide al propietario del rancho que habilite el permiso de exportación.";
+    }
+    if (code === "RANCH_ACCESS_DENIED") {
+      return "No tienes acceso al rancho activo seleccionado. Cambia a un rancho autorizado e inténtalo de nuevo.";
+    }
+    return "No cuentas con permiso de exportación para descargar la Sábana de este rancho.";
+  }
+
+  if (status === 400) {
+    if (code === "MISSING_RANCH_CONTEXT") {
+      return "Selecciona un rancho activo antes de descargar la Sábana en Excel.";
+    }
+    if (code === "INVALID_EXPORT_FORMAT") {
+      return "El servidor rechazó el formato de exportación solicitado (.xlsx). Contacta al administrador de tu asociación.";
+    }
+    return "Los filtros seleccionados no son válidos para exportar la Sábana. Revisa los criterios e inténtalo de nuevo.";
+  }
+
+  if (status === 404) {
+    return "El servicio de exportación de la Sábana (.xlsx) no está disponible en este servidor.";
+  }
+
+  if (status === 408 || status === 504) {
+    return "La generación del archivo Excel tardó demasiado tiempo. Intenta de nuevo o acota los filtros del rebaño.";
+  }
+
+  if (status === 429) {
+    return "Hay demasiadas descargas en curso en este momento. Espera unos segundos e inténtalo de nuevo.";
+  }
+
+  if (status !== undefined && status >= 500) {
+    return "El servidor no pudo generar el archivo Excel de la Sábana en este momento. Inténtalo de nuevo en unos minutos.";
+  }
+
+  if (
+    status === 0 ||
+    err instanceof TypeError ||
+    rawMessage === "" ||
+    /^HTTP \d+$/.test(rawMessage) ||
+    /failed to fetch|networkerror|load failed/i.test(rawMessage)
+  ) {
+    return "No se pudo conectar con el servidor para descargar la Sábana. Revisa tu conexión a internet e inténtalo de nuevo.";
+  }
+
+  return `No se pudo completar la descarga de la Sábana en Excel (${rawMessage}). Inténtalo de nuevo.`;
+}
+
+function defaultTriggerBrowserDownload(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  try {
+    anchor.click();
+  } finally {
+    anchor.remove();
+    setTimeout(() => {
+      URL.revokeObjectURL(objectUrl);
+    }, 1000);
+  }
+}
+
+function isCompatibleXlsxContentType(contentType: string | null): boolean {
+  if (!contentType) return true;
+  const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!normalized) return true;
+  return (
+    normalized === SABANA_XLSX_MIME ||
+    normalized === "application/octet-stream" ||
+    normalized === "application/vnd.ms-excel"
+  );
+}
+
+function hasZipSignature(chunks: Uint8Array[]): boolean {
+  const header: number[] = [];
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length && header.length < 2; i += 1) {
+      header.push(chunk[i]);
+    }
+    if (header.length >= 2) break;
+  }
+  return header.length >= 2 && header[0] === 0x50 && header[1] === 0x4b;
+}
+
+/**
+ * WEB-013: Descarga en streaming el archivo .xlsx oficial desde
+ * GET /api/v1/reports/sabana?format=xlsx (BE-012 FastExcel), aislado
+ * estrictamente al rancho activo vía X-Active-Ranch-Id.
+ */
+export async function downloadSabanaXlsx({
+  filters,
+  ranchId,
+  ranchName,
+  signal,
+  onProgress,
+  triggerDownload = defaultTriggerBrowserDownload,
+}: SabanaExportOptions): Promise<SabanaExportResult> {
+  if (!ranchId || !ranchId.trim()) {
+    const missingRanch = new Error("Rancho activo requerido") as ApiError;
+    missingRanch.status = 400;
+    missingRanch.code = "MISSING_RANCH_CONTEXT";
+    throw missingRanch;
+  }
+
+  onProgress?.({
+    phase: "requesting",
+    loadedBytes: 0,
+    totalBytes: null,
+    percent: null,
+  });
+
+  const queryString = buildSabanaExportQueryString(filters);
+  const response = await apiFetchRaw(`/reports/sabana${queryString}`, {
+    method: "GET",
+    ranchId,
+    signal,
+    headers: {
+      Accept: SABANA_XLSX_MIME,
+    },
+  });
+
+  const contentType = response.headers.get("Content-Type");
+  if (!isCompatibleXlsxContentType(contentType)) {
+    throw createExportValidationError(
+      "El servidor no devolvió un archivo Excel (.xlsx) válido para la Sábana. Inténtalo de nuevo o avisa al administrador.",
+      "INVALID_XLSX_RESPONSE"
+    );
+  }
+
+  const contentLengthHeader = response.headers.get("Content-Length");
+  const parsedLength =
+    contentLengthHeader !== null ? Number(contentLengthHeader) : Number.NaN;
+  const totalBytes =
+    Number.isFinite(parsedLength) && parsedLength > 0
+      ? Math.trunc(parsedLength)
+      : null;
+
+  const chunks: Uint8Array[] = [];
+  let loadedBytes = 0;
+
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const handleAbort = () => {
+      void reader.cancel().catch(() => {});
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
+
+    try {
+      onProgress?.({
+        phase: "downloading",
+        loadedBytes: 0,
+        totalBytes,
+        percent: totalBytes ? 0 : null,
+      });
+
+      while (true) {
+        if (signal?.aborted) {
+          throw signal.reason ?? new DOMException("Descarga cancelada", "AbortError");
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value && value.byteLength > 0) {
+          chunks.push(value);
+          loadedBytes += value.byteLength;
+          const percent = totalBytes
+            ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100))
+            : null;
+          onProgress?.({
+            phase: "downloading",
+            loadedBytes,
+            totalBytes,
+            percent,
+          });
+        }
+      }
+    } finally {
+      signal?.removeEventListener("abort", handleAbort);
+      reader.releaseLock();
+    }
+  } else {
+    const buffer = await response.arrayBuffer();
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("Descarga cancelada", "AbortError");
+    }
+    const bytes = new Uint8Array(buffer);
+    if (bytes.byteLength > 0) {
+      chunks.push(bytes);
+      loadedBytes = bytes.byteLength;
+    }
+    onProgress?.({
+      phase: "downloading",
+      loadedBytes,
+      totalBytes: totalBytes ?? (loadedBytes > 0 ? loadedBytes : null),
+      percent: loadedBytes > 0 ? 100 : null,
+    });
+  }
+
+  if (loadedBytes === 0) {
+    throw createExportValidationError(
+      "El archivo Excel descargado llegó vacío. Inténtalo de nuevo en un momento.",
+      "EMPTY_XLSX_RESPONSE"
+    );
+  }
+
+  if (!hasZipSignature(chunks)) {
+    throw createExportValidationError(
+      "El archivo recibido no tiene un formato Excel (.xlsx) válido. Inténtalo de nuevo o verifica el estado del servidor.",
+      "INVALID_XLSX_RESPONSE"
+    );
+  }
+
+  onProgress?.({
+    phase: "saving",
+    loadedBytes,
+    totalBytes: totalBytes ?? loadedBytes,
+    percent: 100,
+  });
+
+  const fallbackFilename = buildFallbackSabanaFilename(ranchName, ranchId);
+  const filename = extractDownloadFilename(
+    response.headers.get("Content-Disposition"),
+    fallbackFilename
+  );
+
+  const blob = new Blob(chunks as BlobPart[], { type: SABANA_XLSX_MIME });
+  triggerDownload(blob, filename);
+
+  return { filename, bytes: loadedBytes };
 }

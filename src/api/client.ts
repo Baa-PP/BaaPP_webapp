@@ -103,41 +103,54 @@ function isNonRecoverableRefreshError(err: unknown): boolean {
   return status >= 400 && status < 500;
 }
 
+type RequestErrorContext = {
+  path: string;
+  ranchId: string | null;
+  expectedGeneration: number;
+};
+
+async function throwOnErrorResponse(
+  res: Response,
+  context?: RequestErrorContext
+): Promise<void> {
+  if (res.ok) return;
+
+  let message = `HTTP ${res.status}`;
+  let code: string | undefined;
+  try {
+    const body = await res.json();
+    if (typeof body?.code === "string" && body.code.trim().length > 0) {
+      code = body.code.trim();
+    }
+    if (typeof body?.message === "string" && body.message.trim().length > 0) {
+      message = body.message.trim();
+    }
+  } catch {
+    // sin cuerpo JSON
+  }
+
+  if (res.status === 403) {
+    message = resolveForbiddenMessage(message, code);
+    if (context && sessionGeneration === context.expectedGeneration) {
+      const event: ForbiddenEvent = {
+        status: 403,
+        code,
+        message,
+        path: context.path,
+        ranchId: context.ranchId,
+      };
+      forbiddenErrorListeners.forEach((listener) => listener(event));
+    }
+  }
+
+  throw createApiError(res.status, message, code);
+}
+
 async function parseResponse<T>(
   res: Response,
-  context?: { path: string; ranchId: string | null; expectedGeneration: number }
+  context?: RequestErrorContext
 ): Promise<T> {
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`;
-    let code: string | undefined;
-    try {
-      const body = await res.json();
-      if (typeof body?.code === "string" && body.code.trim().length > 0) {
-        code = body.code.trim();
-      }
-      if (typeof body?.message === "string" && body.message.trim().length > 0) {
-        message = body.message.trim();
-      }
-    } catch {
-      // sin cuerpo JSON
-    }
-
-    if (res.status === 403) {
-      message = resolveForbiddenMessage(message, code);
-      if (context && sessionGeneration === context.expectedGeneration) {
-        const event: ForbiddenEvent = {
-          status: 403,
-          code,
-          message,
-          path: context.path,
-          ranchId: context.ranchId,
-        };
-        forbiddenErrorListeners.forEach((listener) => listener(event));
-      }
-    }
-
-    throw createApiError(res.status, message, code);
-  }
+  await throwOnErrorResponse(res, context);
   return res.json() as Promise<T>;
 }
 
@@ -381,12 +394,13 @@ async function refreshSession(): Promise<string> {
   return newToken;
 }
 
-// --- apiFetch principal ---
+// --- Ejecutor autenticado compartido (JSON y descargas binarias/streaming) ---
 
-export async function apiFetch<T>(
+async function executeAuthenticatedFetch(
   path: string,
-  init: ApiFetchOptions = {}
-): Promise<T> {
+  init: ApiFetchOptions,
+  forceJsonAccept: boolean
+): Promise<{ response: Response; errorContext: RequestErrorContext }> {
   if (API_CONFIG_ERROR) {
     throw createApiError(0, API_CONFIG_ERROR, "INSECURE_TRANSPORT");
   }
@@ -398,7 +412,7 @@ export async function apiFetch<T>(
       : useRanchContextStore.getState().activeRanchId;
   const requestGen = sessionGeneration;
   const effectiveRanchId = ranchId === null ? null : (activeRanchId ?? null);
-  const errorContext = {
+  const errorContext: RequestErrorContext = {
     path,
     ranchId: effectiveRanchId,
     expectedGeneration: requestGen,
@@ -406,7 +420,11 @@ export async function apiFetch<T>(
   const token = sessionStorage.getItem("jwt_token");
 
   const headers = new Headers(fetchInit.headers);
-  headers.set("Accept", "application/json");
+  if (forceJsonAccept) {
+    headers.set("Accept", "application/json");
+  } else if (!headers.has("Accept")) {
+    headers.set("Accept", "*/*");
+  }
   if (fetchInit.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -440,31 +458,33 @@ export async function apiFetch<T>(
       if (retryRes.status === 401) {
         expireSessionAndRedirect(requestGen);
       }
-      return parseResponse<T>(retryRes, errorContext);
+      return { response: retryRes, errorContext };
     }
 
     // 2. Si ya hay un refresh en curso con el token actual, encolar esta petición (1 solo refresh para N 401 concurrentes).
     if (isRefreshing) {
-      return new Promise<T>((resolve, reject) => {
-        pendingQueue.push({
-          resolve: async (newToken: string) => {
-            try {
-              headers.set("Authorization", `Bearer ${newToken}`);
-              const res = await fetchApiResponse(path, {
-                ...fetchInit,
-                headers,
-              });
-              if (res.status === 401) {
-                expireSessionAndRedirect(requestGen);
+      return new Promise<{ response: Response; errorContext: RequestErrorContext }>(
+        (resolve, reject) => {
+          pendingQueue.push({
+            resolve: async (newToken: string) => {
+              try {
+                headers.set("Authorization", `Bearer ${newToken}`);
+                const res = await fetchApiResponse(path, {
+                  ...fetchInit,
+                  headers,
+                });
+                if (res.status === 401) {
+                  expireSessionAndRedirect(requestGen);
+                }
+                resolve({ response: res, errorContext });
+              } catch (err) {
+                reject(err);
               }
-              resolve(await parseResponse<T>(res, errorContext));
-            } catch (err) {
-              reject(err);
-            }
-          },
-          reject,
-        });
-      });
+            },
+            reject,
+          });
+        }
+      );
     }
 
     // 3. Primer 401: iniciar un único POST /api/v1/auth/refresh bajo la misma generación de sesión
@@ -501,8 +521,40 @@ export async function apiFetch<T>(
       expireSessionAndRedirect(initialSessionGen);
     }
 
-    return parseResponse<T>(retryRes, errorContext);
+    return { response: retryRes, errorContext };
   }
 
+  return { response, errorContext };
+}
+
+// --- apiFetch principal ---
+
+export async function apiFetch<T>(
+  path: string,
+  init: ApiFetchOptions = {}
+): Promise<T> {
+  const { response, errorContext } = await executeAuthenticatedFetch(
+    path,
+    init,
+    true
+  );
   return parseResponse<T>(response, errorContext);
+}
+
+/**
+ * Variante autenticada para respuestas binarias / streaming (p. ej. exportación .xlsx).
+ * Conserva el encabezado Accept del llamador, aplica el mismo interceptor 401,
+ * inyección de X-Active-Ranch-Id, validación HTTPS y publicación de eventos 403.
+ */
+export async function apiFetchRaw(
+  path: string,
+  init: ApiFetchOptions = {}
+): Promise<Response> {
+  const { response, errorContext } = await executeAuthenticatedFetch(
+    path,
+    init,
+    false
+  );
+  await throwOnErrorResponse(response, errorContext);
+  return response;
 }

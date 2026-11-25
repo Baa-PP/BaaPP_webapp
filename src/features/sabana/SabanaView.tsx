@@ -20,8 +20,13 @@ import {
 } from "./SabanaColumns";
 import {
   applyCutoffDateToRows,
+  downloadSabanaXlsx,
   EMPTY_SABANA_FILTERS,
   fetchSabanaReport,
+  formatByteSize,
+  formatSabanaExportError,
+  isAbortError,
+  type SabanaExportProgress,
   type SabanaFilters,
 } from "./sabanaApi";
 
@@ -30,10 +35,17 @@ interface SabanaViewProps {
   multiRanch: boolean;
   activeRanchId: string | null;
   ranchName?: string;
+  canExport?: boolean;
   ranchesLoading: boolean;
   ranchesError?: string;
   onRetryRanches: () => void;
 }
+
+type ExportState =
+  | { status: "idle" }
+  | { status: "exporting"; progress: SabanaExportProgress }
+  | { status: "success"; filename: string; bytes: number }
+  | { status: "error"; message: string };
 
 type PinPreset = "folio" | "identificadores" | "none";
 
@@ -51,6 +63,7 @@ export function SabanaView({
   multiRanch,
   activeRanchId,
   ranchName,
+  canExport = false,
   ranchesLoading,
   ranchesError,
   onRetryRanches,
@@ -61,8 +74,22 @@ export function SabanaView({
   const [cutoffDateOverride, setCutoffDateOverride] = useState("");
   const [sorting, setSorting] = useState<SortingState>([{ id: "folio", desc: false }]);
   const [pinPreset, setPinPreset] = useState<PinPreset>("folio");
+  const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+
+  // Cancel any in-flight export and reset export feedback when ranch changes or view unmounts
+  useEffect(() => {
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = null;
+    setExportState({ status: "idle" });
+
+    return () => {
+      exportAbortRef.current?.abort();
+      exportAbortRef.current = null;
+    };
+  }, [activeRanchId]);
 
   // Reset scroll position when ranch, filters, or sorting change
   useEffect(() => {
@@ -199,6 +226,59 @@ export function SabanaView({
     setQuickFilter("");
   }
 
+  async function handleExportXlsx() {
+    if (!canExport || !activeRanchId || exportAbortRef.current) return;
+
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExportState({
+      status: "exporting",
+      progress: {
+        phase: "requesting",
+        loadedBytes: 0,
+        totalBytes: null,
+        percent: null,
+      },
+    });
+
+    try {
+      const result = await downloadSabanaXlsx({
+        filters: appliedFilters,
+        ranchId: activeRanchId,
+        ranchName,
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (exportAbortRef.current !== controller) return;
+          setExportState({ status: "exporting", progress });
+        },
+      });
+      if (exportAbortRef.current !== controller) return;
+      exportAbortRef.current = null;
+      setExportState({
+        status: "success",
+        filename: result.filename,
+        bytes: result.bytes,
+      });
+    } catch (err) {
+      if (exportAbortRef.current !== controller) return;
+      exportAbortRef.current = null;
+      if (isAbortError(err) || controller.signal.aborted) {
+        setExportState({ status: "idle" });
+        return;
+      }
+      setExportState({
+        status: "error",
+        message: formatSabanaExportError(err),
+      });
+    }
+  }
+
+  function handleCancelExport() {
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = null;
+    setExportState({ status: "idle" });
+  }
+
   if (!activeRanchId) {
     return (
       <RanchContextNotice
@@ -223,6 +303,18 @@ export function SabanaView({
         ? "No se pudo cargar la sábana del rancho."
         : "";
 
+  const isExporting = exportState.status === "exporting";
+  const exportButtonLabel =
+    exportState.status === "exporting"
+      ? exportState.progress.phase === "saving"
+        ? "Guardando Excel…"
+        : exportState.progress.percent !== null
+          ? `Descargando ${exportState.progress.percent}%…`
+          : exportState.progress.loadedBytes > 0
+            ? `Descargando (${formatByteSize(exportState.progress.loadedBytes)})…`
+            : "Generando Excel…"
+      : "Exportar Excel (.xlsx)";
+
   return (
     <section className="sabana-section">
       <div className="page-head">
@@ -237,22 +329,155 @@ export function SabanaView({
             fecha de corte (<code>meses = días / 30.0</code>).
           </p>
         </div>
-        <div className="sabana-head-badges">
-          <span className="sabana-metric-pill">
-            <strong>{displayedCount.toLocaleString("es-MX")}</strong>{" "}
-            {displayedCount === 1 ? "ejemplar" : "ejemplares"}
-            {displayedCount !== totalElements && totalElements > 0
-              ? ` de ${totalElements.toLocaleString("es-MX")}`
-              : ""}
-          </span>
-          <span className="sabana-metric-pill">
-            Corte: <strong>{effectiveCutoffIso}</strong>
-          </span>
-          <span className="sabana-metric-pill">
-            <strong>{visibleLeafColumns.length}</strong> cols (A–X)
-          </span>
+        <div className="sabana-head-right">
+          <div className="sabana-head-badges">
+            <span className="sabana-metric-pill">
+              <strong>{displayedCount.toLocaleString("es-MX")}</strong>{" "}
+              {displayedCount === 1 ? "ejemplar" : "ejemplares"}
+              {displayedCount !== totalElements && totalElements > 0
+                ? ` de ${totalElements.toLocaleString("es-MX")}`
+                : ""}
+            </span>
+            <span className="sabana-metric-pill">
+              Corte: <strong>{effectiveCutoffIso}</strong>
+            </span>
+            <span className="sabana-metric-pill">
+              <strong>{visibleLeafColumns.length}</strong> cols (A–X)
+            </span>
+          </div>
+          {canExport && (
+            <div className="sabana-head-actions">
+              <button
+                type="button"
+                className="primary sabana-export-btn"
+                disabled={isExporting}
+                aria-busy={isExporting}
+                title={
+                  hasActiveServerFilters
+                    ? "Descargar archivo .xlsx del rancho activo con los filtros aplicados"
+                    : "Descargar archivo .xlsx completo del rancho activo"
+                }
+                onClick={() => {
+                  void handleExportXlsx();
+                }}
+              >
+                {isExporting && (
+                  <span className="sabana-spinner" aria-hidden="true" />
+                )}
+                <span>{exportButtonLabel}</span>
+              </button>
+              {isExporting && (
+                <button
+                  type="button"
+                  className="secondary-button sabana-cancel-export-btn"
+                  onClick={handleCancelExport}
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
+
+      {canExport && exportState.status === "exporting" && (
+        <div
+          className="sabana-export-banner is-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="sabana-export-banner-row">
+            <strong>
+              {exportState.progress.phase === "requesting"
+                ? "Preparando archivo Excel (.xlsx) en el servidor…"
+                : exportState.progress.phase === "saving"
+                  ? "Archivo generado, iniciando descarga…"
+                  : "Descargando Sábana en Excel (.xlsx)…"}
+            </strong>
+            <span className="sabana-export-meta">
+              {exportState.progress.percent !== null &&
+              exportState.progress.totalBytes !== null
+                ? `${exportState.progress.percent}% · ${formatByteSize(exportState.progress.loadedBytes)} de ${formatByteSize(exportState.progress.totalBytes)}`
+                : exportState.progress.loadedBytes > 0
+                  ? `${formatByteSize(exportState.progress.loadedBytes)} recibidos (streaming)`
+                  : hasActiveServerFilters
+                    ? "Aplicando filtros del rancho activo"
+                    : "Rancho activo completo"}
+            </span>
+          </div>
+          <div
+            className="sabana-progress-track"
+            role="progressbar"
+            aria-label="Progreso de exportación de Sábana en Excel"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={exportState.progress.percent ?? undefined}
+          >
+            <div
+              className={
+                exportState.progress.percent !== null
+                  ? "sabana-progress-fill"
+                  : "sabana-progress-fill is-indeterminate"
+              }
+              style={
+                exportState.progress.percent !== null
+                  ? { width: `${exportState.progress.percent}%` }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      {canExport && exportState.status === "success" && (
+        <div
+          className="sabana-export-banner is-success"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="sabana-export-banner-row">
+            <span>
+              Sábana exportada correctamente:{" "}
+              <code>{exportState.filename}</code> (
+              {formatByteSize(exportState.bytes)}).
+            </span>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setExportState({ status: "idle" })}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canExport && exportState.status === "error" && (
+        <div className="sabana-export-banner is-error" role="alert">
+          <div className="sabana-export-banner-body">
+            <strong>No se pudo descargar la Sábana en Excel</strong>
+            <p>{exportState.message}</p>
+          </div>
+          <div className="sabana-export-banner-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                void handleExportXlsx();
+              }}
+            >
+              Reintentar descarga
+            </button>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setExportState({ status: "idle" })}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
 
       <form className="filters-card sabana-filters-card" onSubmit={handleFilterSubmit}>
         <div className="sabana-filter-grid">

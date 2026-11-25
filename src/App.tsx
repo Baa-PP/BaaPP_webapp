@@ -50,6 +50,7 @@ const formatDateTime=(s?:string)=>{if(!s)return 'Sin sincronización';const d=ne
 const hasValidSync=(s?:string)=>Boolean(s&&!isNaN(new Date(s).getTime()));
 const canInventory=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.lectura===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const canSabana=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.exportacion===true||s.permissions?.export_data===true||s.permissions?.export===true||s.permissions?.sabana===true;
+const canExportSabana=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.exportacion===true||s.permissions?.export_data===true||s.permissions?.export===true;
 const canAnalytics=(s:Session)=>s.role!=='WORKER_BRANCH'||s.permissions?.read_inventory===true||s.permissions?.lectura===true||s.permissions?.analytics===true||s.permissions?.analytics?.read===true||s.permissions?.inventory===true||s.permissions?.inventory?.read===true;
 const canEditRanch=(s:Session)=>RANCH_EDIT_ROLES.includes(s.role);
 const canManageWorkers=(s:Session)=>s.role==='OWNER';
@@ -240,6 +241,7 @@ function PortalApp(){
   const canEdit=Boolean(s&&canEditRanch(s));
   const canWorkers=Boolean(s&&canManageWorkers(s));
   const canViewSabana=Boolean(s&&canSabana(s));
+  const canExportSabanaReport=Boolean(s&&canExportSabana(s));
   const canViewAnalytics=Boolean(s&&canAnalytics(s));
   const detail=url.startsWith('inventario/');
   const detailId=detail?url.slice(11):'';
@@ -626,6 +628,7 @@ function PortalApp(){
                 multiRanch={multi}
                 activeRanchId={activeRanchId}
                 ranchName={selectedRanch?.name}
+                canExport={canExportSabanaReport}
                 ranchesLoading={ranchesQuery.isFetching}
                 ranchesError={ranchesError}
                 onRetryRanches={retryRanches}

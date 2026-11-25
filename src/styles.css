@@ -3604,11 +3604,165 @@ td small,
   gap: 16px;
 }
 
+.sabana-head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
 .sabana-head-badges {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.sabana-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sabana-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sabana-export-btn:disabled {
+  opacity: 0.78;
+  cursor: wait;
+}
+
+.sabana-cancel-export-btn {
+  height: 38px;
+}
+
+.sabana-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: sabana-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes sabana-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sabana-export-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-strong);
+  font-size: 13px;
+}
+
+.sabana-export-banner.is-progress {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+  color: #1E3A8A;
+}
+
+.sabana-export-banner.is-success {
+  background: #F0FDF4;
+  border-color: #BBF7D0;
+  color: var(--brand-primary);
+}
+
+.sabana-export-banner.is-error {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--semantic-danger-bg);
+  border-color: var(--semantic-danger);
+  color: var(--text-primary);
+}
+
+.sabana-export-banner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.sabana-export-meta {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sabana-export-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sabana-export-banner-body strong {
+  color: var(--semantic-danger);
+  font-size: 13px;
+}
+
+.sabana-export-banner-body p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sabana-export-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sabana-progress-track {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(30, 58, 138, 0.14);
+}
+
+.sabana-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-secondary);
+  transition: width 0.2s ease;
+}
+
+.sabana-progress-fill.is-indeterminate {
+  width: 38%;
+  animation: sabana-indeterminate 1.25s ease-in-out infinite;
+}
+
+@keyframes sabana-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 .sabana-metric-pill {
@@ -3917,6 +4071,15 @@ td small,
 }
 
 @media (max-width: 1000px) {
+  .sabana-head-right {
+    align-items: flex-start;
+  }
+
+  .sabana-head-badges,
+  .sabana-head-actions {
+    justify-content: flex-start;
+  }
+
   .sabana-filter-grid {
     grid-template-columns: 1fr 1fr;
   }
