@@ -635,6 +635,9 @@ export async function downloadSabanaXlsx({
           throw signal.reason ?? new DOMException("Descarga cancelada", "AbortError");
         }
         const { done, value } = await reader.read();
+        if (signal?.aborted) {
+          throw signal.reason ?? new DOMException("Descarga cancelada", "AbortError");
+        }
         if (done) break;
         if (value && value.byteLength > 0) {
           chunks.push(value);
