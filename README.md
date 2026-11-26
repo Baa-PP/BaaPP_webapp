@@ -107,6 +107,18 @@ npm run dev
    * Verifica que el backend responda `HTTP 403` (`RANCH_ACCESS_DENIED`) y que la UI muestre el banner de alerta `.security-alert` indicando la denegación de acceso.
    * **Estado en este repositorio:** la comprobación automática de cliente y redirecciones está validada con `fetch` simulado; el repositorio no cuenta con runner E2E ni backend embebido en CI, por lo que la validación integral contra `BE-002` requiere ejecutar este procedimiento manual con el backend levantado.
 
+### 4. Verificación de Criterios de Aceptación de la Demo MVP (WEB-028 / Sección 7.2)
+
+```bash
+npm run build
+npm run verify:security
+npm run verify:mvp-demo
+# Compuerta estricta una vez fusionados todos los PRs dependientes en main:
+npm run verify:mvp-demo -- --strict
+```
+
+El script [`scripts/verify-mvp-demo.mjs`](scripts/verify-mvp-demo.mjs) comprueba en cliente los cinco criterios de la Sección 7.2 (sincronización campo→portal, multi-rancho sin re-login, auditoría anti-fraude, Sábana `.xlsx` de 24 columnas `A–X`, árbol genealógico y vientres improductivos) y reporta explícitamente cualquier PR pendiente de fusión. El protocolo completo de ensayo en vivo contra `BaaPP-backend` (`BE-016`) y `BaaPP-app` está documentado en [`tickets/WEB-028.md`](tickets/WEB-028.md).
+
 ---
 
 ## Equipo de Desarrollo
