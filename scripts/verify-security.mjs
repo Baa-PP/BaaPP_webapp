@@ -48,11 +48,11 @@ function walkFiles(dir) {
 function scanSecrets(label, content) {
   for (const { name, regex } of SECRET_PATTERNS) {
     regex.lastIndex = 0;
-    const match = regex.exec(content);
+    const hasMatch = regex.test(content);
     assert.equal(
-      match,
-      null,
-      `Posible secreto detectado (${name}) en ${label}: ${match?.[0] ?? ""}`
+      hasMatch,
+      false,
+      `Posible secreto detectado (${name}) en ${label}`
     );
   }
 }
