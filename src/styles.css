@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --brand-primary: #1B4332;
   --brand-primary-hover: #143326;
   --accent-secondary: #1E40AF;
@@ -31,6 +32,10 @@
   box-sizing: border-box;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -41,7 +46,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -52,6 +58,44 @@ button {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* WEB-027: Accesibilidad por teclado y alto contraste (Chrome, Edge, Firefox) */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2.5px solid var(--accent-secondary);
+  outline-offset: 2px;
+}
+
+.sidebar :where(a, button):focus-visible {
+  outline: 2.5px solid #FDE047;
+  outline-offset: 2px;
+}
+
+#main-content:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  background: var(--brand-primary);
+  color: var(--surface-base);
+  border: 2px solid #FDE047;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.28);
+  transform: translateY(-160%);
+  transition: transform 0.15s ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 /* --- Login layout (especificacion-ui-ux: AgriWebb / Breedr utilitarian style) --- */
@@ -457,13 +501,6 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 12px 20px;
-}
-
-.topbar-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
 }
 
 .topbar-left {
@@ -3593,5 +3630,57 @@ td small,
 
   .analytics-filter-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* --- WEB-027: Escritorio >= 1280px, pantallas medianas (769-1180px) y compatibilidad Firefox/Chrome/Edge --- */
+.table-wrap,
+.table-scroll,
+.births-table-wrap,
+.analytics-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: #94A3B8 #F1F5F9;
+}
+
+@media (min-width: 769px) and (max-width: 1180px) {
+  .portal-shell {
+    grid-template-columns: 208px minmax(0, 1fr);
+  }
+
+  .sidebar-brand {
+    padding: 0 14px;
+  }
+
+  .sidebar-nav {
+    padding: 12px 10px;
+  }
+
+  .nav-link {
+    padding: 9px 10px;
+    font-size: 13px;
+  }
+
+  .topbar {
+    padding: 10px 20px;
+    gap: 10px 14px;
+  }
+
+  .content {
+    padding: 20px;
+  }
+
+  .siniiga-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
