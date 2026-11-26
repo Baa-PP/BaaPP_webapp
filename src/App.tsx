@@ -2,6 +2,7 @@ import { FormEvent, Suspense, lazy, useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, clearSession, getSessionGeneration, onForbiddenError, onSessionCleared, onSessionRefreshed, postAuthEndpoint, type ApiError, type ForbiddenEvent } from './api/client';
 import { API_CONFIG_ERROR, API_IS_HTTPS } from './api/config';
+import { formatNetworkError, resolveApiErrorMessage, translateRoleLabel } from './api/errorMessages';
 import { RanchContextNotice } from './components/RanchContextNotice';
 import { BirthsView } from './features/births/BirthsView';
 import { AnimalCertificate, normalizeAnimalDetail } from './features/inventory/AnimalCertificate';
@@ -296,7 +297,12 @@ function PortalApp(){
     const startGen=getSessionGeneration();
     try{
       const r=await postAuthEndpoint('/auth/login',{username:user.trim(),password:pass}),p=await payload(r);
-      if(!r.ok)throw Error(r.status===401?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.':'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.');
+      if(!r.ok){
+        const fallbackLoginMsg=r.status===401
+          ?'No pudimos abrir tu rancho. Revisa tu usuario y contraseña; si sigue fallando, pide apoyo al administrador de tu asociación.'
+          :typeof p?.message==='string'?p.message:undefined;
+        throw Error(resolveApiErrorMessage({status:r.status,code:typeof p?.code==='string'?p.code:undefined,rawMessage:fallbackLoginMsg,path:'/auth/login'}));
+      }
       const d=data(p),t=token(p),u=d.user||{};
       if(!t)throw Error('El servidor no devolvió el token de acceso.');
       if(getSessionGeneration()!==startGen)return;
@@ -320,7 +326,7 @@ function PortalApp(){
       location.hash=defaultRoute(persisted);
     }catch(e){
       if(getSessionGeneration()!==startGen)return;
-      setLoginErr(e instanceof Error?e.message:'No se pudo iniciar sesión.');
+      setLoginErr(formatNetworkError(e,'No se pudo iniciar sesión. Inténtalo de nuevo en un momento.'));
     }finally{setBusy(false)}
   }
 
@@ -330,16 +336,63 @@ function PortalApp(){
     location.hash='/login';
   }
 
+  function focusMainContent(){
+    const main=document.getElementById('main-content');
+    if(main){
+      main.focus();
+      if(typeof main.scrollIntoView==='function'){
+        main.scrollIntoView({block:'start'});
+      }
+    }
+  }
+
+  const show=Boolean(s&&canInventory(s));
+  const hasModuleAccess=Boolean(s&&(show||canEdit||canWorkers||canViewAnalytics||AUDIT.includes(s.role)));
+  const pageTitle=!s||url==='login'
+    ?'Iniciar sesión'
+    :!hasModuleAccess||url==='sin-permisos'
+      ?'Sin módulos habilitados'
+      :url==='rancho'&&canEdit
+        ?'Perfil del rancho'
+        :url==='cuentas-rama'&&canWorkers
+          ?'Cuentas rama del rancho'
+          :url==='indicadores'&&canViewAnalytics
+            ?'Indicadores reproductivos'
+            :url==='mortalidad-destete'&&canViewAnalytics
+              ?'Mortalidad y destete'
+              :url==='crecimiento'&&canViewAnalytics
+                ?'Crecimiento y ranking GDP'
+                :url==='destetes-pendientes'&&canViewAnalytics
+                  ?'Tablero de destetes pendientes'
+                  :url==='vientres-improductivos'&&canViewAnalytics
+                    ?'Vientres improductivos (CULL / SELL)'
+                    :isBirthsRoute
+                      ?(multi?'Bandeja de auditoría de nacimientos':'Partos del rancho')
+                      :detail
+                        ?'Reseña individual del ejemplar'
+                        :'Inventario del rebaño';
+
+  useEffect(()=>{
+    document.title=`${pageTitle} · BaaPP (OviApp)`;
+  },[pageTitle]);
+
   if(!s||url==='login'){
     return (
       <div className="login-shell">
+        <a
+          className="skip-link"
+          href="#main-content"
+          onClick={e=>{e.preventDefault();focusMainContent()}}
+        >
+          Saltar al contenido principal
+        </a>
         <header className="login-topbar">
           <div className="login-topbar-brand">
             BaaPP <span>OviApp · Portal Web</span>
           </div>
           <span className="login-topbar-context">Gestión Ganadera Ovina</span>
         </header>
-        <main className="login-page">
+        <main id="main-content" tabIndex={-1} className="login-page">
           <form className="login-card" onSubmit={login}>
             <div className="login-card-header">
               <p className="eyebrow">Acceso al portal</p>
@@ -406,8 +459,6 @@ function PortalApp(){
     );
   }
 
-  const show=canInventory(s);
-  const hasModuleAccess=show||canEdit||canWorkers||canViewAnalytics||AUDIT.includes(s.role);
   const selectedRanch=activeRanchId?availableRanches.find(r=>r.id===activeRanchId)??null:null;
   const ranchSynced=hasValidSync(selectedRanch?.last_sync_at);
   const animal=animalQuery.data??null;
@@ -415,11 +466,17 @@ function PortalApp(){
   const error=animalQuery.error instanceof Error?animalQuery.error.message:'';
   const ranchesError=ranchesQuery.isError?(ranchesQuery.error instanceof Error?ranchesQuery.error.message:'No se pudieron cargar los ranchos afiliados.'):'';
   const retryRanches=()=>{void ranchesQuery.refetch()};
-  const pageTitle=!hasModuleAccess||url==='sin-permisos'?'Sin módulos habilitados':url==='rancho'&&canEdit?'Perfil del rancho':url==='cuentas-rama'&&canWorkers?'Cuentas rama (WORKER_BRANCH)':url==='indicadores'&&canViewAnalytics?'Indicadores reproductivos':url==='mortalidad-destete'&&canViewAnalytics?'Mortalidad y destete':url==='crecimiento'&&canViewAnalytics?'Crecimiento y ranking GDP':url==='destetes-pendientes'&&canViewAnalytics?'Tablero de destetes pendientes':url==='vientres-improductivos'&&canViewAnalytics?'Vientres improductivos (CULL / SELL)':isBirthsRoute?(multi?'Bandeja de auditoría de nacimientos':'Partos del rancho'):detail?'Reseña individual del ejemplar':'Inventario del rebaño';
 
   return (
     <div className="portal-shell">
-      <aside className="sidebar">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={e=>{e.preventDefault();focusMainContent()}}
+      >
+        Saltar al contenido principal
+      </a>
+      <aside className="sidebar" aria-label="Menú lateral del portal">
         <a className="sidebar-brand" href={'#'+defaultRoute(s)}>
           <strong>BaaPP (OviApp)</strong>
           <span>Portal de Rancho y Asociación</span>
@@ -427,46 +484,86 @@ function PortalApp(){
         <nav className="sidebar-nav" aria-label="Navegación principal">
           <p className="sidebar-label">Módulos</p>
           {show&&(
-            <a className={url==='inventario'||detail?'nav-link active':'nav-link'} href="#/inventario">
+            <a
+              className={url==='inventario'||detail?'nav-link active':'nav-link'}
+              aria-current={url==='inventario'||detail?'page':undefined}
+              href="#/inventario"
+            >
               Inventario y Reseña
             </a>
           )}
           {canViewAnalytics&&(
             <>
-              <a className={url==='indicadores'?'nav-link active':'nav-link'} href="#/indicadores">
+              <a
+                className={url==='indicadores'?'nav-link active':'nav-link'}
+                aria-current={url==='indicadores'?'page':undefined}
+                href="#/indicadores"
+              >
                 Indicadores reproductivos
               </a>
-              <a className={url==='mortalidad-destete'?'nav-link active':'nav-link'} href="#/mortalidad-destete">
+              <a
+                className={url==='mortalidad-destete'?'nav-link active':'nav-link'}
+                aria-current={url==='mortalidad-destete'?'page':undefined}
+                href="#/mortalidad-destete"
+              >
                 Mortalidad y destete
               </a>
-              <a className={url==='crecimiento'?'nav-link active':'nav-link'} href="#/crecimiento">
+              <a
+                className={url==='crecimiento'?'nav-link active':'nav-link'}
+                aria-current={url==='crecimiento'?'page':undefined}
+                href="#/crecimiento"
+              >
                 Crecimiento y GDP
               </a>
-              <a className={url==='destetes-pendientes'?'nav-link active':'nav-link'} href="#/destetes-pendientes">
+              <a
+                className={url==='destetes-pendientes'?'nav-link active':'nav-link'}
+                aria-current={url==='destetes-pendientes'?'page':undefined}
+                href="#/destetes-pendientes"
+              >
                 Destetes pendientes
               </a>
-              <a className={url==='vientres-improductivos'?'nav-link active':'nav-link'} href="#/vientres-improductivos">
+              <a
+                className={url==='vientres-improductivos'?'nav-link active':'nav-link'}
+                aria-current={url==='vientres-improductivos'?'page':undefined}
+                href="#/vientres-improductivos"
+              >
                 Vientres improductivos
               </a>
             </>
           )}
           {canEdit&&(
-            <a className={url==='rancho'?'nav-link active':'nav-link'} href="#/rancho">
+            <a
+              className={url==='rancho'?'nav-link active':'nav-link'}
+              aria-current={url==='rancho'?'page':undefined}
+              href="#/rancho"
+            >
               Perfil del rancho
             </a>
           )}
           {canWorkers&&(
-            <a className={url==='cuentas-rama'?'nav-link active':'nav-link'} href="#/cuentas-rama">
+            <a
+              className={url==='cuentas-rama'?'nav-link active':'nav-link'}
+              aria-current={url==='cuentas-rama'?'page':undefined}
+              href="#/cuentas-rama"
+            >
               Cuentas rama
             </a>
           )}
           {AUDIT.includes(s.role)&&(
-            <a className={url==='auditoria-nacimientos'||url==='partos'?'nav-link active':'nav-link'} href="#/auditoria-nacimientos">
+            <a
+              className={url==='auditoria-nacimientos'||url==='partos'?'nav-link active':'nav-link'}
+              aria-current={url==='auditoria-nacimientos'||url==='partos'?'page':undefined}
+              href="#/auditoria-nacimientos"
+            >
               Bandeja de auditoría
             </a>
           )}
           {s.role==='OWNER'&&(
-            <a className={url==='partos'?'nav-link active':'nav-link'} href="#/partos">
+            <a
+              className={url==='partos'?'nav-link active':'nav-link'}
+              aria-current={url==='partos'?'page':undefined}
+              href="#/partos"
+            >
               Partos del rancho
             </a>
           )}
@@ -539,13 +636,13 @@ function PortalApp(){
           </div>
           <div className="account">
             <span className="account-user">{s.username}</span>
-            <span className="role-badge">{s.role||'USUARIO'}</span>
+            <span className="role-badge" title={s.role||undefined}>{translateRoleLabel(s.role)}</span>
             <button type="button" className="secondary-button" onClick={logout}>
               Cerrar sesión
             </button>
           </div>
         </header>
-        <main className="content">
+        <main id="main-content" tabIndex={-1} className="content">
           {API_CONFIG_ERROR&&(
             <div className="security-alert" role="alert">
               <div className="security-alert-body">

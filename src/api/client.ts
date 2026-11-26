@@ -4,6 +4,7 @@ import {
   API_CONFIG_ERROR,
   validateApiBaseUrl,
 } from "./config";
+import { formatNetworkError, resolveApiErrorMessage } from "./errorMessages";
 
 /**
  * WEB-003 — apiFetch: cliente HTTP centralizado.
@@ -57,25 +58,6 @@ function createApiError(
   return err;
 }
 
-function resolveForbiddenMessage(rawMessage?: string, code?: string): string {
-  const trimmed = typeof rawMessage === "string" ? rawMessage.trim() : "";
-  if (
-    trimmed.length > 0 &&
-    trimmed !== "HTTP 403" &&
-    trimmed.toLowerCase() !== "forbidden"
-  ) {
-    return trimmed;
-  }
-  switch (code) {
-    case "RANCH_ACCESS_DENIED":
-      return "El usuario autenticado no tiene acceso al rancho activo.";
-    case "INSUFFICIENT_PERMISSION":
-      return "No cuentas con los permisos necesarios para realizar esta operación en el rancho activo.";
-    default:
-      return "Acceso denegado (403): no tienes permisos para realizar esta operación.";
-  }
-}
-
 type ForbiddenErrorListener = (event: ForbiddenEvent) => void;
 const forbiddenErrorListeners = new Set<ForbiddenErrorListener>();
 
@@ -108,7 +90,7 @@ async function parseResponse<T>(
   context?: { path: string; ranchId: string | null; expectedGeneration: number }
 ): Promise<T> {
   if (!res.ok) {
-    let message = `HTTP ${res.status}`;
+    let rawMessage: string | undefined;
     let code: string | undefined;
     try {
       const body = await res.json();
@@ -116,14 +98,20 @@ async function parseResponse<T>(
         code = body.code.trim();
       }
       if (typeof body?.message === "string" && body.message.trim().length > 0) {
-        message = body.message.trim();
+        rawMessage = body.message.trim();
       }
     } catch {
       // sin cuerpo JSON
     }
 
+    const message = resolveApiErrorMessage({
+      status: res.status,
+      code,
+      rawMessage,
+      path: context?.path,
+    });
+
     if (res.status === 403) {
-      message = resolveForbiddenMessage(message, code);
       if (context && sessionGeneration === context.expectedGeneration) {
         const event: ForbiddenEvent = {
           status: 403,
@@ -255,7 +243,15 @@ async function fetchApiResponse(
     ? { ...requestInit, redirect: "error" }
     : requestInit;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, effectiveInit);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, effectiveInit);
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === "AbortError") {
+      throw err;
+    }
+    throw createApiError(0, formatNetworkError(err), "NETWORK_ERROR");
+  }
   assertSafeResponseTransport(res, hasBody);
   return res;
 }
