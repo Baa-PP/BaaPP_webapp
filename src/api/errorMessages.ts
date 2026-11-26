@@ -148,9 +148,24 @@ const ENGLISH_DOMAIN_PATTERNS: ReadonlyArray<{ pattern: RegExp; message: string 
   },
 ];
 
+const ENGLISH_ERROR_CUE_PATTERN =
+  /\b(?:invalid|missing|required|cannot|must|should|already|exists|not\s+found|failed|unable|could\s+not|unexpected|unauthorized|forbidden|expired|locked|duplicate|too\s+large|unsupported|between|before|after|does\s+not|is\s+not|are\s+not|the|with|from|into|row|rows|sheet|column|columns|field|fields|weight|birth|date|value|empty|negative)\b/i;
+
+const SPANISH_ESTABLISHED_PATTERN =
+  /[áéíóúüñ¿¡]|\b(?:el|la|los|las|un|una|del|al|por|para|con|sin|no\s+se|no\s+puede|no\s+pueden|debe|deben|contiene|falta|faltan|revisa|verifica|fila|arete|ejemplar|borrega|destete|parto|rancho|peso|fecha|inv[aá]lid[oa]s?|duplicad[oa]s?|obligatori[oa]s?)\b/i;
+
 function isGenericTechnicalMessage(trimmed: string): boolean {
   if (!trimmed) return true;
   return GENERIC_RAW_PATTERNS.some((re) => re.test(trimmed));
+}
+
+function isEstablishedSpanishMessage(trimmed: string): boolean {
+  if (!trimmed || isGenericTechnicalMessage(trimmed)) return false;
+  if (ENGLISH_ERROR_CUE_PATTERN.test(trimmed)) return false;
+  if (ENGLISH_DOMAIN_PATTERNS.some((entry) => entry.pattern.test(trimmed))) {
+    return false;
+  }
+  return SPANISH_ESTABLISHED_PATTERN.test(trimmed);
 }
 
 function statusFallbackMessage(status: number, path?: string): string {
@@ -216,17 +231,9 @@ export function resolveApiErrorMessage({
   const normalizedCode = typeof code === "string" ? code.trim().toUpperCase() : "";
 
   if (normalizedCode && normalizedCode in DOMAIN_CODE_MESSAGES) {
-    // Si el backend ya envió un mensaje en español detallado (p. ej. indicando número de fila),
-    // lo respetamos salvo en códigos de seguridad 403 con contrato explícito o mensajes genéricos.
-    if (
-      status !== 403 &&
-      trimmedRaw &&
-      !isGenericTechnicalMessage(trimmedRaw) &&
-      !ENGLISH_DOMAIN_PATTERNS.some((entry) => entry.pattern.test(trimmedRaw)) &&
-      /[áéíóúñ¿¡]|(?:fila|arete|folio|parto|rancho|ejemplar|cría|borrega|destete|sábana)/i.test(
-        trimmedRaw
-      )
-    ) {
+    // Si el backend ya envió un mensaje detallado claramente en español (p. ej. indicando número de fila),
+    // lo respetamos salvo en códigos de seguridad 403 con contrato explícito.
+    if (status !== 403 && isEstablishedSpanishMessage(trimmedRaw)) {
       return trimmedRaw;
     }
     return DOMAIN_CODE_MESSAGES[normalizedCode];
@@ -238,7 +245,7 @@ export function resolveApiErrorMessage({
         return entry.message;
       }
     }
-    if (!isGenericTechnicalMessage(trimmedRaw)) {
+    if (isEstablishedSpanishMessage(trimmedRaw)) {
       return trimmedRaw;
     }
   }
@@ -263,7 +270,7 @@ export function formatNetworkError(err: unknown, fallback?: string): string {
   if (/timeout|timed out|aborted/i.test(msg)) {
     return "La conexión tardó demasiado en responder. Inténtalo de nuevo en un momento.";
   }
-  if (msg && !isGenericTechnicalMessage(msg)) {
+  if (isEstablishedSpanishMessage(msg)) {
     return msg;
   }
   return (

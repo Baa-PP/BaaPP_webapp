@@ -71,7 +71,7 @@ a {
   outline-offset: 2px;
 }
 
-#main-content:focus {
+#main-content:focus:not(:focus-visible) {
   outline: none;
 }
 
